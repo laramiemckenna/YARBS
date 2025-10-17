@@ -1,0 +1,42 @@
+{
+  "modifications": [
+    {
+      "type": "invert",
+      "contigName": "contig_2",
+      "timestamp": 1705320000000
+    }
+  ],
+  "chromosomeGroups": {
+    "chr1A_copy1": {
+      "contigs": [
+        "contig_1",
+        "contig_2",
+        "contig_3"
+      ],
+      "order": [0, 1, 2],
+      "visible": true,
+      "createdOn": "chr1"
+    },
+    "chr1A_copy2": {
+      "contigs": [
+        "contig_4",
+        "contig_5"
+      ],
+      "order": [0, 1],
+      "visible": true,
+      "createdOn": "chr1"
+    },
+    "chr2A_copy1": {
+      "contigs": [
+        "contig_10",
+        "contig_11",
+        "contig_12"
+      ],
+      "order": [0, 1, 2],
+      "visible": true,
+      "createdOn": "chr2"
+    }
+  },
+  "timestamp": "2025-01-15T10:30:00.000Z",
+  "note": "Combined export from all reference workspaces - ready for genome_scaffolder.py"
+}

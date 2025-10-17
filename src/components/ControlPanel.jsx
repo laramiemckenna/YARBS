@@ -1,0 +1,1048 @@
+// src/components/ControlPanel.jsx - Enhanced with chromosome grouping for polyploids
+import React, { useMemo, useState, useCallback } from 'react';
+import {
+  Settings,
+  RotateCcw,
+  Scissors,
+  Info,
+  Activity,
+  Database,
+  Users,
+  Plus,
+  Trash2,
+  Check,
+  X,
+  ChevronUp,
+  ChevronDown,
+  HelpCircle
+} from 'lucide-react';
+
+const ControlPanel = ({
+  data,
+  selectedRef,
+  onSelectedRefChange,
+  settings,
+  onSettingsChange,
+  explorationMode,
+  selectedContigs,
+  onSelectedContigsChange,
+  lockedChromosomes,
+  onLockChromosome,
+  onUnlockChromosome,
+  modifications,
+  onAddModification,
+  onRemoveModification,
+  chromosomeGroups,
+  onCreateChromosomeGroup,
+  onDeleteChromosomeGroup,
+  contigOrder,
+  onContigOrderChange,
+  referenceFlipped,
+  onReferenceFlippedChange,
+  uninformativeContigs,
+  onUninformativeContigsChange,
+  onZoomToContig
+}) => {
+  const [showGroupCreation, setShowGroupCreation] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [expandedGroups, setExpandedGroups] = useState(new Set());
+  const [showHelp, setShowHelp] = useState(false);
+
+  // Get contigs for a reference with enhanced metadata - memoized to fix dependency warning
+  const getContigsForReference = useCallback((data, refName) => {
+    if (!data || !refName) return [];
+
+    const contigMap = new Map();
+
+    // First pass: collect all alignments for this reference (don't filter by length yet)
+    data.alignments
+      .filter(a => {
+        // Filter by reference and tag only
+        if (a.ref !== refName) return false;
+        if (a.tag !== 'unique' && a.tag !== 'unique_short') return false;
+        return true;
+      })
+      .forEach(a => {
+        if (!contigMap.has(a.query)) {
+          contigMap.set(a.query, {
+            name: a.query,
+            identity: a.identity,
+            length: a.length,
+            alignmentCount: 0,
+            flipSuggestionCount: 0, // Track how many alignments suggest flipping
+            totalLength: 0,
+            averageIdentity: 0,
+            isModified: modifications.some(m => m.query === a.query),
+            group: Object.keys(chromosomeGroups).find(group =>
+              chromosomeGroups[group].contigs.includes(a.query)
+            )
+          });
+        }
+        const contig = contigMap.get(a.query);
+        contig.alignmentCount++;
+        contig.identity = Math.max(contig.identity, a.identity);
+        contig.totalLength += a.length;
+        contig.averageIdentity = (contig.averageIdentity * (contig.alignmentCount - 1) + a.identity) / contig.alignmentCount;
+
+        // Track flip suggestions from minimap2
+        if (a.needsFlip === true) {
+          contig.flipSuggestionCount++;
+        }
+      });
+
+    // Filter contigs based on unique alignment ratio only
+    // The minAlignmentLength setting only affects visualization, not the contig list
+    // Keep contigs that have either:
+    // - Meet the unique ratio filter criterion, OR
+    // - Are part of a chromosome group (user explicitly assigned), OR
+    // - Are modified (user has worked on them)
+
+    const filteredContigs = Array.from(contigMap.values()).filter(contig => {
+      if (contig.group || contig.isModified) return true; // Always show grouped/modified
+
+      // Hide contigs marked as uninformative
+      if (uninformativeContigs && uninformativeContigs.has(contig.name)) return false;
+
+      // Get the actual contig info from queries (contains the real contig length)
+      const contigInfo = data.queries.find(q => q.name === contig.name);
+      if (!contigInfo) return false; // Skip if contig not found
+
+      // Check minimum contig size filter (convert kb to bp, use ACTUAL contig length not alignment length)
+      if (settings.minContigSize && settings.minContigSize > 0) {
+        const minSizeInBp = settings.minContigSize * 1000;
+        if (contigInfo.length < minSizeInBp) return false;
+      }
+
+      // Check unique alignment ratio only (alignment length filter only affects visualization)
+      const uniqueRatio = contig.totalLength / contigInfo.length;
+      if (uniqueRatio < settings.minUniqueRatio) return false;
+
+      return true;
+    });
+
+    // Sort by custom order if available, otherwise by identity
+    return filteredContigs.sort((a, b) => {
+      const orderA = contigOrder[a.name] !== undefined ? contigOrder[a.name] : 999999;
+      const orderB = contigOrder[b.name] !== undefined ? contigOrder[b.name] : 999999;
+
+      // If both have custom order, use that
+      if (orderA !== 999999 || orderB !== 999999) {
+        return orderA - orderB;
+      }
+
+      // Otherwise fall back to identity sorting
+      return b.identity - a.identity;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modifications, chromosomeGroups, contigOrder, settings.minUniqueRatio, settings.minContigSize, uninformativeContigs]);
+
+  // Calculate statistics - now after function definition
+  const statistics = useMemo(() => {
+    if (!data) return null;
+
+    const uniqueAlignments = data.alignments.filter(a => a.tag === 'unique').length;
+    const uniqueShortAlignments = data.alignments.filter(a => a.tag === 'unique_short').length;
+    const repetitiveAlignments = data.alignments.filter(a => a.tag === 'repetitive').length;
+    const selectedRefData = data.references.find(r => r.name === selectedRef);
+    const contigsForSelectedRef = getContigsForReference(data, selectedRef);
+    const modifiedQueries = new Set(modifications.map(m => m.query)).size;
+
+    // Calculate how many alignments/contigs are filtered by minAlignmentLength
+    const allContigsForRef = data.alignments
+      .filter(a => a.ref === selectedRef && (a.tag === 'unique' || a.tag === 'unique_short'))
+      .reduce((map, a) => {
+        if (!map.has(a.query)) map.set(a.query, true);
+        return map;
+      }, new Map());
+    const totalContigsForRef = allContigsForRef.size;
+    const filteredOutContigs = totalContigsForRef - contigsForSelectedRef.length;
+
+    return {
+      totalReferences: data.references.length,
+      totalQueries: data.queries.length,
+      totalAlignments: data.alignments.length,
+      uniqueAlignments,
+      uniqueShortAlignments,
+      repetitiveAlignments,
+      selectedRefLength: selectedRefData?.length || 0,
+      contigsForSelectedRef: contigsForSelectedRef.length,
+      totalContigsForRef,
+      filteredOutContigs,
+      modifiedQueries,
+      chromosomeGroups: Object.keys(chromosomeGroups).length
+    };
+  }, [data, selectedRef, modifications, chromosomeGroups, getContigsForReference]);
+
+  // Handle moving contig up or down in the list
+  const handleMoveContig = (contigName, direction) => {
+    const currentContigs = contigsForSelectedRef.map(c => c.name);
+    const currentIndex = currentContigs.indexOf(contigName);
+
+    if (currentIndex === -1) return;
+
+    // Calculate new index
+    const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+
+    // Check bounds
+    if (newIndex < 0 || newIndex >= currentContigs.length) return;
+
+    // Reorder
+    const reordered = [...currentContigs];
+    reordered.splice(currentIndex, 1);
+    reordered.splice(newIndex, 0, contigName);
+
+    // Update contigOrder with new indices
+    // Since contigOrder is now reference-specific, we create a fresh mapping
+    // for just the contigs in the current reference
+    const updatedOrder = {};
+    reordered.forEach((name, idx) => {
+      updatedOrder[name] = idx;
+    });
+
+    // Update the workspace's contigOrder for this reference
+    if (onContigOrderChange) {
+      onContigOrderChange(updatedOrder);
+    }
+  };
+
+  // Handle contig selection with multi-select support
+  const handleContigSelection = (contigName, isShiftSelect = false) => {
+    if (isShiftSelect && selectedContigs.length > 0) {
+      // Range selection
+      const contigsForRef = getContigsForReference(data, selectedRef);
+      const lastSelectedIndex = contigsForRef.findIndex(c => c.name === selectedContigs[selectedContigs.length - 1]);
+      const currentIndex = contigsForRef.findIndex(c => c.name === contigName);
+      
+      if (lastSelectedIndex !== -1 && currentIndex !== -1) {
+        const start = Math.min(lastSelectedIndex, currentIndex);
+        const end = Math.max(lastSelectedIndex, currentIndex);
+        const rangeContigs = contigsForRef.slice(start, end + 1).map(c => c.name);
+        
+        const newSelection = [...new Set([...selectedContigs, ...rangeContigs])];
+        onSelectedContigsChange(newSelection);
+        return;
+      }
+    }
+    
+    // Normal selection
+    if (selectedContigs.includes(contigName)) {
+      onSelectedContigsChange(selectedContigs.filter(name => name !== contigName));
+    } else {
+      onSelectedContigsChange([...selectedContigs, contigName]);
+    }
+  };
+
+  // Handle modifications with validation
+  const handleInvertContig = () => {
+    if (selectedContigs.length === 0) return;
+    
+    selectedContigs.forEach(contigName => {
+      // Check if already inverted
+      const existingInversion = modifications.find(m => m.type === 'invert' && m.query === contigName);
+      if (existingInversion) {
+        // Remove existing inversion (toggle)
+        const index = modifications.indexOf(existingInversion);
+        onRemoveModification(index);
+      } else {
+        onAddModification({
+          type: 'invert',
+          query: contigName
+        });
+      }
+    });
+  };
+
+
+  // Chromosome grouping functions
+  const handleCreateGroup = () => {
+    if (!newGroupName.trim() || selectedContigs.length === 0) return;
+    
+    // Validate group name
+    if (chromosomeGroups[newGroupName]) {
+      alert('Group name already exists');
+      return;
+    }
+    
+    onCreateChromosomeGroup(newGroupName.trim(), selectedContigs);
+    setNewGroupName('');
+    setShowGroupCreation(false);
+    onSelectedContigsChange([]); // Clear selection
+  };
+
+  const handleAddToExistingGroup = (groupName) => {
+    if (selectedContigs.length === 0) return;
+    
+    const existingGroup = chromosomeGroups[groupName];
+    const newContigs = [...new Set([...existingGroup.contigs, ...selectedContigs])];
+    
+    onCreateChromosomeGroup(groupName, newContigs);
+    onSelectedContigsChange([]); // Clear selection
+  };
+
+  const contigsForSelectedRef = data ? getContigsForReference(data, selectedRef) : [];
+
+  if (!data) {
+    return (
+      <div className="w-full p-4 bg-white shadow-lg">
+        <div className="text-center text-gray-500">
+          <Database size={48} className="mx-auto mb-3 opacity-50" />
+          <p>Load coordinate files to access controls</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 bg-white shadow-lg overflow-y-auto h-full control-panel">
+      <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+        <Settings size={20} />
+        Control Panel
+      </h3>
+
+      {/* Statistics Section */}
+      <div className="mb-6">
+        <h4 className="font-semibold text-gray-700 mb-2 flex items-center gap-2">
+          <Info size={16} />
+          Statistics
+        </h4>
+        <div className="bg-gray-50 rounded-lg p-3">
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div>References: <strong>{statistics.totalReferences}</strong></div>
+            <div>Queries: <strong>{statistics.totalQueries}</strong></div>
+            <div>Total alignments: <strong>{statistics.totalAlignments}</strong></div>
+            <div>Unique: <strong className="text-green-600">{statistics.uniqueAlignments}</strong></div>
+            <div>Unique short: <strong className="text-cyan-600">{statistics.uniqueShortAlignments}</strong></div>
+            <div>Repetitive: <strong className="text-orange-600">{statistics.repetitiveAlignments}</strong></div>
+            <div>Modified queries: <strong className="text-purple-600">{statistics.modifiedQueries}</strong></div>
+            <div>Chr groups: <strong className="text-blue-600">{statistics.chromosomeGroups}</strong></div>
+            <div colSpan="2">Selected ref contigs: <strong>{statistics.contigsForSelectedRef}</strong></div>
+          </div>
+        </div>
+      </div>
+
+      {/* Reference Selection */}
+      <div className="mb-6">
+        <label className="block text-sm font-semibold text-gray-700 mb-2">
+          Reference Chromosome
+        </label>
+        <select
+          value={selectedRef}
+          onChange={(e) => onSelectedRefChange(e.target.value)}
+          className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        >
+          {data.references.map(ref => (
+            <option key={ref.name} value={ref.name}>
+              {ref.name} ({(ref.length / 1000000).toFixed(1)}Mb)
+            </option>
+          ))}
+        </select>
+        <div className="mt-1 flex items-center gap-2 text-xs">
+          {lockedChromosomes.has(selectedRef) ? (
+            <div className="text-red-600 flex items-center gap-1">
+              <Info size={12} />
+              Locked
+              <button
+                onClick={() => onUnlockChromosome(selectedRef)}
+                className="text-blue-600 hover:underline ml-1"
+              >
+                (unlock)
+              </button>
+            </div>
+          ) : (
+            <div className="text-gray-600">
+              Unlocked - can be modified
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Chromosome Groups */}
+      {Object.keys(chromosomeGroups).length > 0 && (
+        <div className="mb-6">
+          <h4 className="font-semibold text-gray-700 mb-2 flex items-center gap-2">
+            <Users size={16} />
+            Chromosome Groups ({Object.keys(chromosomeGroups).length})
+          </h4>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {Object.entries(chromosomeGroups).map(([groupName, group]) => {
+              const isExpanded = expandedGroups.has(groupName);
+              return (
+                <div key={groupName} className="bg-blue-50 border border-blue-200 rounded-md p-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2 flex-1">
+                      <button
+                        onClick={() => {
+                          const newExpanded = new Set(expandedGroups);
+                          if (isExpanded) {
+                            newExpanded.delete(groupName);
+                          } else {
+                            newExpanded.add(groupName);
+                          }
+                          setExpandedGroups(newExpanded);
+                        }}
+                        className="text-blue-600 hover:text-blue-800"
+                        title={isExpanded ? "Collapse" : "Expand"}
+                      >
+                        {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </button>
+                      <span className="font-medium text-blue-800">{groupName}</span>
+                      <span className="text-xs text-blue-600">({group.contigs.length})</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Delete chromosome group "${groupName}"?`)) {
+                          onDeleteChromosomeGroup(groupName);
+                        }
+                      }}
+                      className="text-red-500 hover:text-red-700 p-1"
+                      title="Delete group"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+
+                  {isExpanded ? (
+                    <div className="mt-2 space-y-1">
+                      <div className="text-xs font-medium text-blue-700 mb-1">Contigs in this group:</div>
+                      {group.contigs.map((contigName, idx) => (
+                        <div key={idx} className="text-xs text-blue-700 pl-6">
+                          • {contigName}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-blue-700">
+                      {group.contigs.slice(0, 3).join(', ')}
+                      {group.contigs.length > 3 && ` +${group.contigs.length - 3} more`}
+                    </div>
+                  )}
+
+                  {selectedContigs.length > 0 && (
+                    <button
+                      onClick={() => handleAddToExistingGroup(groupName)}
+                      className="text-xs text-blue-600 hover:underline mt-2"
+                    >
+                      Add {selectedContigs.length} selected to this group
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Scaffolding Controls */}
+      {!explorationMode && (
+        <div className="mb-6">
+          <h4 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+            <Scissors size={16} />
+            Scaffolding Controls
+          </h4>
+
+          {selectedRef && (
+            <div className="space-y-4">
+              {/* Contigs list */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h5 className="text-sm font-medium text-gray-700">
+                    Contigs for {selectedRef}
+                  </h5>
+                  <span className="text-xs text-gray-500">
+                    {contigsForSelectedRef.length} total
+                  </span>
+                </div>
+                
+                <div className="max-h-96 overflow-y-auto border border-gray-200 rounded-md">
+                  {contigsForSelectedRef.length === 0 ? (
+                    <div className="p-3 text-sm text-gray-500 text-center">
+                      No unique alignments found for this reference
+                    </div>
+                  ) : (
+                    contigsForSelectedRef.map((contig, index) => (
+                      <div
+                        key={contig.name}
+                        className={`
+                          p-2 cursor-pointer text-sm border-b border-gray-100 hover:bg-gray-50
+                          ${selectedContigs.includes(contig.name) ? 'bg-blue-100' : ''}
+                          ${contig.isModified ? 'border-l-4 border-l-purple-400' : ''}
+                        `}
+                        draggable={!explorationMode}
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('text/plain', contig.name);
+                          e.dataTransfer.effectAllowed = 'move';
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const draggedContigName = e.dataTransfer.getData('text/plain');
+                          if (draggedContigName !== contig.name) {
+                            // Get the current list of contigs for this reference (in display order)
+                            const currentContigs = contigsForSelectedRef.map(c => c.name);
+                            const draggedIndex = currentContigs.indexOf(draggedContigName);
+                            const targetIndex = index;
+
+                            // Reorder just these contigs
+                            const reordered = [...currentContigs];
+                            reordered.splice(draggedIndex, 1);
+                            reordered.splice(targetIndex, 0, draggedContigName);
+
+                            // Update contigOrder with new indices
+                            // Since contigOrder is now reference-specific, we create a fresh mapping
+                            // for just the contigs in the current reference
+                            const updatedOrder = {};
+                            reordered.forEach((contigName, idx) => {
+                              updatedOrder[contigName] = idx;
+                            });
+
+                            // Update the workspace's contigOrder for this reference
+                            if (onContigOrderChange) {
+                              onContigOrderChange(updatedOrder);
+                            }
+                          }
+                        }}
+                        onClick={(e) => handleContigSelection(contig.name, e.shiftKey)}
+                        onDoubleClick={() => onZoomToContig && onZoomToContig(contig.name)}
+                        title={!explorationMode ? "Drag to reorder or use arrows | Double-click to zoom" : "Click to select | Double-click to zoom"}
+                      >
+                        <div className="flex justify-between items-center gap-2">
+                          {/* Arrow buttons for reordering */}
+                          {!explorationMode && (
+                            <div className="flex flex-col gap-0">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMoveContig(contig.name, 'up');
+                                }}
+                                disabled={index === 0}
+                                className={`p-0.5 hover:bg-gray-200 rounded transition-colors ${index === 0 ? 'opacity-30 cursor-not-allowed' : ''}`}
+                                title="Move up"
+                              >
+                                <ChevronUp size={12} />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMoveContig(contig.name, 'down');
+                                }}
+                                disabled={index === contigsForSelectedRef.length - 1}
+                                className={`p-0.5 hover:bg-gray-200 rounded transition-colors ${index === contigsForSelectedRef.length - 1 ? 'opacity-30 cursor-not-allowed' : ''}`}
+                                title="Move down"
+                              >
+                                <ChevronDown size={12} />
+                              </button>
+                            </div>
+                          )}
+
+                          <div className="flex-1">
+                            <div className="flex justify-between items-center">
+                              <span className={`font-medium ${contig.isModified ? 'text-purple-700' : ''}`}>
+                                {!explorationMode && (
+                                  <span className="mr-2 text-gray-400">⋮⋮</span>
+                                )}
+                                {contig.name}
+                                {contig.group && (
+                                  <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1 rounded">
+                                    {contig.group}
+                                  </span>
+                                )}
+                                {contig.flipSuggestionCount > 0 && contig.flipSuggestionCount / contig.alignmentCount > 0.5 && (
+                                  <span className="ml-1 text-xs bg-orange-100 text-orange-700 px-1 rounded" title={`${contig.flipSuggestionCount}/${contig.alignmentCount} alignments suggest flipping`}>
+                                    ↻ flip?
+                                  </span>
+                                )}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-gray-500">
+                                  {contig.identity.toFixed(1)}%
+                                </span>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const newUninformative = new Set(uninformativeContigs);
+                                    newUninformative.add(contig.name);
+                                    onUninformativeContigsChange(newUninformative);
+                                  }}
+                                  className="p-0.5 hover:bg-red-100 rounded transition-colors text-gray-400 hover:text-red-600"
+                                  title="Mark as uninformative and hide"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          {contig.alignmentCount} alignments, {(contig.totalLength / 1000).toFixed(0)}kb total
+                          {contig.flipSuggestionCount > 0 && (
+                            <span className="text-orange-600 ml-1">
+                              ({Math.round(contig.flipSuggestionCount / contig.alignmentCount * 100)}% suggest flip)
+                            </span>
+                          )}
+                          {contig.isModified && <span className="text-purple-600 ml-1">(modified)</span>}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                
+                {selectedContigs.length > 0 && (
+                  <div className="mt-2 text-xs text-gray-600">
+                    Selected: {selectedContigs.length} contigs
+                    <button
+                      onClick={() => onSelectedContigsChange([])}
+                      className="ml-2 text-blue-600 hover:underline"
+                    >
+                      Clear selection
+                    </button>
+                  </div>
+                )}
+
+                {uninformativeContigs.size > 0 && (
+                  <div className="mt-2 p-2 bg-gray-50 rounded text-xs text-gray-600 flex justify-between items-center">
+                    <span>{uninformativeContigs.size} uninformative contigs hidden</span>
+                    <button
+                      onClick={() => onUninformativeContigsChange(new Set())}
+                      className="text-blue-600 hover:underline"
+                    >
+                      Restore all
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Action buttons */}
+              <div className="space-y-2">
+                {selectedContigs.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={handleInvertContig}
+                      className="flex items-center gap-1 px-3 py-2 text-sm bg-purple-500 hover:bg-purple-600 text-white rounded-md transition-colors"
+                      title="Flip contigs to match reference orientation"
+                    >
+                      <RotateCcw size={14} />
+                      Flip to Reference ({selectedContigs.length})
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        const newUninformative = new Set(uninformativeContigs);
+                        selectedContigs.forEach(contig => newUninformative.add(contig));
+                        onUninformativeContigsChange(newUninformative);
+                        onSelectedContigsChange([]); // Clear selection
+                      }}
+                      className="flex items-center gap-1 px-3 py-2 text-sm bg-gray-500 hover:bg-gray-600 text-white rounded-md transition-colors"
+                      title="Hide these contigs as uninformative (cleared when changing chromosome)"
+                    >
+                      <Trash2 size={14} />
+                      Mark Uninformative ({selectedContigs.length})
+                    </button>
+                  </div>
+                )}
+
+                {/* Chromosome grouping */}
+                {selectedContigs.length > 0 && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+                    <h6 className="text-sm font-medium text-blue-800 mb-2">
+                      Create Chromosome Group
+                    </h6>
+                    <p className="text-xs text-blue-700 mb-2">
+                      Group selected contigs for polyploid chromosome copies (e.g., Chr08.1, Chr08.2)
+                    </p>
+                    
+                    {!showGroupCreation ? (
+                      <button
+                        onClick={() => setShowGroupCreation(true)}
+                        className="flex items-center gap-1 text-sm text-blue-600 hover:underline"
+                      >
+                        <Plus size={12} />
+                        Create new group with {selectedContigs.length} contigs
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={newGroupName}
+                          onChange={(e) => setNewGroupName(e.target.value)}
+                          placeholder="Group name (e.g., Chr08.1)"
+                          className="flex-1 p-1 text-sm border border-gray-300 rounded"
+                        />
+                        <button
+                          onClick={handleCreateGroup}
+                          className="p-1 text-green-600 hover:bg-green-100 rounded"
+                        >
+                          <Check size={14} />
+                        </button>
+                        <button
+                          onClick={() => {setShowGroupCreation(false); setNewGroupName('');}}
+                          className="p-1 text-red-600 hover:bg-red-100 rounded"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Modifications Log */}
+      {modifications.length > 0 && (
+        <div className="mb-4">
+          <h4 className="font-semibold text-gray-700 mb-2 flex items-center justify-between">
+            <span>Modifications ({modifications.length})</span>
+            <button
+              onClick={() => modifications.forEach((_, i) => onRemoveModification(i))}
+              className="text-xs text-red-600 hover:underline"
+            >
+              Clear all
+            </button>
+          </h4>
+          <div className="max-h-40 overflow-y-auto bg-gray-50 border border-gray-200 rounded-md p-2">
+            {modifications.map((mod, index) => (
+              <div key={index} className="flex items-center justify-between py-1 border-b border-gray-200 last:border-b-0">
+                <div className="text-xs text-gray-600">
+                  <strong className={mod.type === 'invert' ? 'text-purple-600' : 'text-orange-600'}>
+                    {mod.type}
+                  </strong>: {mod.query}
+                  {mod.position && ` at ${mod.position}`}
+                </div>
+                <button
+                  onClick={() => onRemoveModification(index)}
+                  className="text-red-500 hover:bg-red-100 rounded p-1"
+                >
+                  <Trash2 size={10} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Visualization Settings */}
+      <div className="mb-6">
+        <h4 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+          <Activity size={16} />
+          Visualization Settings
+        </h4>
+
+        <div className="space-y-3">
+          {/* Show repetitive */}
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={settings.showRepetitive}
+              onChange={(e) => onSettingsChange({
+                ...settings,
+                showRepetitive: e.target.checked
+              })}
+              className="rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+            />
+            <span className="text-sm">Show repetitive alignments</span>
+          </label>
+
+          {/* Show all alignments (including filtered ones) */}
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={settings.showAllAlignments}
+              onChange={(e) => onSettingsChange({
+                ...settings,
+                showAllAlignments: e.target.checked
+              })}
+              className="rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+            />
+            <span className="text-sm">Show all unique alignments</span>
+          </label>
+          <p className="text-xs text-gray-500 ml-6 -mt-2">
+            Include alignments filtered by unique_length threshold
+          </p>
+
+          {/* Contig Filtering Controls */}
+          <div className="border-t pt-3 mt-3 space-y-3">
+            <div className="flex justify-between items-center">
+              <label className="block text-sm font-medium text-gray-700">
+                Contig Filters
+              </label>
+              {statistics && statistics.filteredOutContigs > 0 && (
+                <span className="text-xs text-orange-600 font-medium">
+                  {statistics.filteredOutContigs} contigs hidden
+                </span>
+              )}
+            </div>
+
+            {/* Unique Alignment Ratio Filter */}
+            <div className="bg-blue-50 p-2 rounded">
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-xs font-medium text-gray-700">
+                  Unique Alignment Ratio
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={(settings.minUniqueRatio * 100).toFixed(0)}
+                    onChange={(e) => {
+                      const value = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
+                      onSettingsChange({
+                        ...settings,
+                        minUniqueRatio: value / 100
+                      });
+                    }}
+                    className="w-14 px-1 py-0.5 border border-blue-300 rounded text-xs text-blue-700 font-mono text-right"
+                  />
+                  <span className="text-xs text-blue-700">%</span>
+                </div>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="0.2"
+                step="0.01"
+                value={Math.min(settings.minUniqueRatio, 0.2)}
+                onChange={(e) => onSettingsChange({
+                  ...settings,
+                  minUniqueRatio: parseFloat(e.target.value)
+                })}
+                className="w-full"
+              />
+              <div className="flex justify-between text-xs text-gray-500 mt-0.5">
+                <span>0%</span>
+                <span>20%</span>
+              </div>
+              <p className="text-xs text-gray-600 mt-1">
+                Show contigs where ≥{(settings.minUniqueRatio * 100).toFixed(0)}% of contig length uniquely aligns to {selectedRef}
+              </p>
+            </div>
+
+            {/* Alignment Length Filter */}
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Min Total Alignment Length
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min="0"
+                  max="100000"
+                  step="1000"
+                  value={settings.minAlignmentLength}
+                  onChange={(e) => onSettingsChange({
+                    ...settings,
+                    minAlignmentLength: parseInt(e.target.value)
+                  })}
+                  className="flex-1"
+                />
+                <input
+                  type="number"
+                  value={settings.minAlignmentLength}
+                  onChange={(e) => onSettingsChange({
+                    ...settings,
+                    minAlignmentLength: parseInt(e.target.value) || 0
+                  })}
+                  className="w-20 px-2 py-1 border border-gray-300 rounded text-xs"
+                  min="0"
+                />
+                <span className="text-xs text-gray-500">bp</span>
+              </div>
+            </div>
+
+            {/* Minimum Contig Size Filter */}
+            <div className="bg-orange-50 p-2 rounded">
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Minimum Contig Size
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={settings.minContigSize || 0}
+                  onChange={(e) => onSettingsChange({
+                    ...settings,
+                    minContigSize: parseInt(e.target.value) || 0
+                  })}
+                  placeholder="0"
+                  className="flex-1 px-2 py-1 border border-orange-300 rounded text-xs"
+                  min="0"
+                />
+                <span className="text-xs text-gray-600">kb</span>
+              </div>
+              <p className="text-xs text-gray-600 mt-1">
+                Hide contigs smaller than this size (0 = show all)
+              </p>
+            </div>
+
+            <p className="text-xs text-gray-600 border-t pt-2">
+              Showing <strong>{statistics?.contigsForSelectedRef || 0}</strong> of <strong>{statistics?.totalContigsForRef || 0}</strong> contigs
+            </p>
+          </div>
+
+          {/* Line thickness */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Line thickness: {settings.lineThickness}x
+            </label>
+            <input
+              type="range"
+              min="1"
+              max="10"
+              value={settings.lineThickness}
+              onChange={(e) => onSettingsChange({
+                ...settings,
+                lineThickness: parseInt(e.target.value)
+              })}
+              className="w-full"
+            />
+          </div>
+
+          {/* Label font size */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Contig label font size: {settings.labelFontSize}px
+            </label>
+            <input
+              type="range"
+              min="8"
+              max="24"
+              value={settings.labelFontSize}
+              onChange={(e) => onSettingsChange({
+                ...settings,
+                labelFontSize: parseInt(e.target.value)
+              })}
+              className="w-full"
+            />
+          </div>
+
+          {/* Color settings */}
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Forward
+              </label>
+              <input
+                type="color"
+                value={settings.colors.uniqueForward}
+                onChange={(e) => onSettingsChange({
+                  ...settings,
+                  colors: { ...settings.colors, uniqueForward: e.target.value }
+                })}
+                className="w-full h-8 rounded border"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Reverse
+              </label>
+              <input
+                type="color"
+                value={settings.colors.uniqueReverse}
+                onChange={(e) => onSettingsChange({
+                  ...settings,
+                  colors: { ...settings.colors, uniqueReverse: e.target.value }
+                })}
+                className="w-full h-8 rounded border"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Repetitive
+              </label>
+              <input
+                type="color"
+                value={settings.colors.repetitive}
+                onChange={(e) => onSettingsChange({
+                  ...settings,
+                  colors: { ...settings.colors, repetitive: e.target.value }
+                })}
+                className="w-full h-8 rounded border"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Help & Tips Section */}
+      <div className="mb-6">
+        <button
+          onClick={() => setShowHelp(!showHelp)}
+          className="w-full flex items-center justify-between p-3 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <HelpCircle size={16} className="text-blue-600" />
+            <span className="font-semibold text-blue-800">Help & Tips</span>
+          </div>
+          {showHelp ? <ChevronUp size={16} className="text-blue-600" /> : <ChevronDown size={16} className="text-blue-600" />}
+        </button>
+
+        {showHelp && (
+          <div className="mt-3 text-xs text-gray-600 space-y-3 bg-gray-50 p-4 rounded border border-gray-200">
+            <div>
+              <p className="font-semibold text-gray-800 mb-2">Getting Started:</p>
+              <ul className="space-y-1 ml-4 list-disc">
+                <li>Generate alignment files using the minimap_prep.py script</li>
+                <li>Load both .coords and .coords.idx files using the toolbar</li>
+                <li>Select a reference chromosome to begin visualizing alignments</li>
+              </ul>
+            </div>
+
+            <div>
+              <p className="font-semibold text-gray-800 mb-2">Exploration Mode:</p>
+              <ul className="space-y-1 ml-4 list-disc">
+                <li>Use mouse wheel to zoom in and out</li>
+                <li>Click and drag to pan around the visualization</li>
+                <li>View alignment patterns and relationships</li>
+              </ul>
+            </div>
+
+            <div>
+              <p className="font-semibold text-gray-800 mb-2">Scaffolding Mode:</p>
+              <ul className="space-y-1 ml-4 list-disc">
+                <li>Select contigs from the list to work with them</li>
+                <li>Hold Shift to select ranges of contigs</li>
+                <li>Use arrow buttons to reorder contigs precisely</li>
+                <li>Flip contigs to match reference orientation</li>
+                <li>Create chromosome groups for polyploid copies</li>
+                <li>Mark uninformative contigs to hide them</li>
+              </ul>
+            </div>
+
+            <div>
+              <p className="font-semibold text-gray-800 mb-2">Chromosome Groups:</p>
+              <ul className="space-y-1 ml-4 list-disc">
+                <li>Group similar contigs representing polyploid chromosome copies</li>
+                <li>Grouped contigs are greyed out in the visualization</li>
+                <li>Click groups to expand and see member contigs</li>
+                <li>Use the delete button to remove groups if needed</li>
+              </ul>
+            </div>
+
+            <div>
+              <p className="font-semibold text-gray-800 mb-2">Filters:</p>
+              <ul className="space-y-1 ml-4 list-disc">
+                <li><strong>Unique Alignment Ratio:</strong> Show contigs based on % of unique alignment to total length</li>
+                <li><strong>Min Total Alignment Length:</strong> Visual filter only (doesn't remove from list)</li>
+                <li><strong>Min Contig Size:</strong> Hide contigs smaller than specified size</li>
+              </ul>
+            </div>
+
+            <div className="border-t pt-2 mt-2">
+              <p className="text-gray-500 italic">
+                Tip: Use the Undo button to revert recent changes in scaffolding mode
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+    </div>
+  );
+};
+
+export default ControlPanel;
