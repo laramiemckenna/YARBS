@@ -1,8 +1,8 @@
 // src/components/N50Modal.jsx
 import React from 'react';
-import { AlertTriangle, CheckCircle, X, Info } from 'lucide-react';
+import { AlertTriangle, CheckCircle, X, Info, Loader2 } from 'lucide-react';
 
-const N50Modal = ({ isOpen, n50Stats, onProceed, onCancel }) => {
+const N50Modal = ({ isOpen, n50Stats, onProceed, onCancel, isLoading = false }) => {
   if (!isOpen || !n50Stats) return null;
 
   const { n50, totalLength, contigCount, l50, maxContigLength, minContigLength, meanContigLength } = n50Stats;
@@ -152,19 +152,34 @@ const N50Modal = ({ isOpen, n50Stats, onProceed, onCancel }) => {
         <div className="p-6 border-t bg-gray-50 flex justify-end gap-3">
           <button
             onClick={onCancel}
-            className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors font-medium"
+            disabled={isLoading}
+            className={`px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-md transition-colors font-medium ${
+              isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'
+            }`}
           >
             Cancel
           </button>
           <button
             onClick={onProceed}
-            className={`px-6 py-2 rounded-md font-medium transition-colors ${
-              isBelowThreshold
-                ? 'bg-orange-600 hover:bg-orange-700 text-white'
-                : 'bg-green-600 hover:bg-green-700 text-white'
-            }`}
+            disabled={isLoading}
+            className={`px-6 py-2 rounded-md font-medium transition-colors flex items-center gap-2 ${
+              isLoading
+                ? isBelowThreshold
+                  ? 'bg-orange-400 cursor-wait'
+                  : 'bg-green-400 cursor-wait'
+                : isBelowThreshold
+                  ? 'bg-orange-600 hover:bg-orange-700'
+                  : 'bg-green-600 hover:bg-green-700'
+            } text-white`}
           >
-            {isBelowThreshold ? 'Proceed Anyway' : 'Continue'}
+            {isLoading ? (
+              <>
+                <Loader2 size={18} className="animate-spin" />
+                Loading...
+              </>
+            ) : (
+              <>{isBelowThreshold ? 'Proceed Anyway' : 'Continue'}</>
+            )}
           </button>
         </div>
       </div>

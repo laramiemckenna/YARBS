@@ -320,10 +320,24 @@ function App() {
 
   // Handle N50 modal proceed
   const handleN50Proceed = async () => {
-    setShowN50Modal(false);
     if (pendingDataLoad) {
-      await finishDataLoad(pendingDataLoad.parsedData, pendingDataLoad.sessionFile);
-      setPendingDataLoad(null);
+      // Keep modal open with loading state while processing
+      setLoading(true);
+
+      // CRITICAL: Add a small delay to allow React to render the loading state
+      // Without this, finishDataLoad runs synchronously and the loading indicator never shows
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      try {
+        await finishDataLoad(pendingDataLoad.parsedData, pendingDataLoad.sessionFile);
+        setPendingDataLoad(null);
+        setShowN50Modal(false);
+      } catch (err) {
+        console.error('Error loading data:', err);
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -1006,6 +1020,7 @@ function App() {
         n50Stats={n50Stats}
         onProceed={handleN50Proceed}
         onCancel={handleN50Cancel}
+        isLoading={loading}
       />
     </div>
   );
