@@ -31,6 +31,7 @@ const ControlPanel = ({
   onUnlockChromosome,
   modifications,
   onAddModification,
+  onAddModifications,
   onRemoveModification,
   chromosomeGroups,
   onCreateChromosomeGroup,
@@ -248,21 +249,39 @@ const ControlPanel = ({
   // Handle modifications with validation
   const handleInvertContig = () => {
     if (selectedContigs.length === 0) return;
-    
+
+    // OPTIMIZED: Batch all modifications into a single state update to avoid multiple re-renders
+    const newModifications = [];
+    const indicesToRemove = [];
+
     selectedContigs.forEach(contigName => {
       // Check if already inverted
       const existingInversion = modifications.find(m => m.type === 'invert' && m.query === contigName);
       if (existingInversion) {
-        // Remove existing inversion (toggle)
+        // Mark for removal (toggle)
         const index = modifications.indexOf(existingInversion);
-        onRemoveModification(index);
+        indicesToRemove.push(index);
       } else {
-        onAddModification({
+        // Add new inversion
+        newModifications.push({
           type: 'invert',
           query: contigName
         });
       }
     });
+
+    // Remove existing inversions first (if any)
+    if (indicesToRemove.length > 0) {
+      // Remove from highest index to lowest to avoid index shifting
+      indicesToRemove.sort((a, b) => b - a).forEach(index => {
+        onRemoveModification(index);
+      });
+    }
+
+    // Add new modifications in a single batch
+    if (newModifications.length > 0 && onAddModifications) {
+      onAddModifications(newModifications);
+    }
   };
 
 

@@ -12,7 +12,6 @@ import './App.css';
 
 function App() {
   // Main application state
-  const [data, setData] = useState(null);
   const [originalData, setOriginalData] = useState(null); // Keep original for reset
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -73,6 +72,23 @@ function App() {
   const contigOrder = useMemo(() => currentWorkspace?.contigOrder || {}, [currentWorkspace]);
   const uninformativeContigs = useMemo(() => currentWorkspace?.uninformativeContigs || new Set(), [currentWorkspace]);
   const history = useMemo(() => currentWorkspace?.history || [], [currentWorkspace]);
+
+  // OPTIMIZED: Derive data synchronously from originalData + modifications + contigOrder
+  // This eliminates the intermediate render that caused visual glitches when flipping chromosomes
+  // Previously used useEffect + setState which caused two renders:
+  //   Render 1: modifications updated, data still old (visual glitch!)
+  //   Render 2: data updated
+  // Now both update in the same render cycle
+  const data = useMemo(() => {
+    if (!originalData) return null;
+
+    if (modifications.length > 0 || Object.keys(contigOrder).length > 0) {
+      return applyModificationsToVisualization(originalData, modifications, contigOrder);
+    }
+
+    // No modifications, use original data directly (no copy needed)
+    return originalData;
+  }, [originalData, modifications, contigOrder]);
 
   // Visualization settings
   const [settings, setSettings] = useState({
@@ -159,8 +175,8 @@ function App() {
     try {
       // Store original data - use shallow copy since we won't mutate the parsed data
       // We only need to preserve the original structure for reset functionality
+      // NOTE: data is now derived from originalData via useMemo, so we only set originalData
       setOriginalData(parsedData);
-      setData(parsedData);
 
       // OPTIMIZED: Single-pass workspace initialization - O(n) instead of O(n*m)
       // Build a map of reference -> contigs in one pass through alignments
@@ -319,17 +335,8 @@ function App() {
     setLoading(false);
   };
 
-  // Apply modifications to visualization in real-time
-  useEffect(() => {
-    if (originalData && (modifications.length > 0 || Object.keys(contigOrder).length > 0)) {
-      const updatedData = applyModificationsToVisualization(originalData, modifications, contigOrder);
-      setData(updatedData);
-    } else if (originalData) {
-      // OPTIMIZED: No need for deep copy - just use the original reference
-      // Since we're not mutating originalData, we can safely share the reference
-      setData(originalData);
-    }
-  }, [modifications, originalData, contigOrder]);
+  // NOTE: Data is now derived synchronously via useMemo above (lines 82-91)
+  // This eliminates the double-render that caused visual glitches when flipping chromosomes
 
   // Save current workspace state to history before making changes
   const saveToHistory = () => {
@@ -370,6 +377,16 @@ function App() {
     saveToHistory();
     updateWorkspace(selectedRef, {
       modifications: [...modifications, { ...modification, timestamp: Date.now() }]
+    });
+  };
+
+  // OPTIMIZED: Batch add multiple modifications at once to avoid multiple re-renders
+  const addModifications = (newModifications) => {
+    if (!selectedRef || !newModifications || newModifications.length === 0) return;
+    saveToHistory();
+    const timestamp = Date.now();
+    updateWorkspace(selectedRef, {
+      modifications: [...modifications, ...newModifications.map(m => ({ ...m, timestamp }))]
     });
   };
 
@@ -537,7 +554,7 @@ function App() {
       'This will clear all data and return to the load page. Any unsaved work will be lost. Are you sure?'
     );
     if (confirmReset) {
-      setData(null);
+      // NOTE: data is derived from originalData, so we only need to clear originalData
       setOriginalData(null);
       setSelectedRef('');
       setReferenceWorkspaces({});
@@ -957,6 +974,7 @@ function App() {
             onUnlockChromosome={unlockChromosome}
             modifications={modifications}
             onAddModification={addModification}
+            onAddModifications={addModifications}
             onRemoveModification={removeModification}
             chromosomeGroups={chromosomeGroups}
             onCreateChromosomeGroup={createChromosomeGroup}

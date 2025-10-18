@@ -243,15 +243,11 @@ const DotPlot = ({
   }, [data, settings, viewMode, selectedRef, zoom, pan, selectedContigs, canvasSize, modifications, visualMods, contigOrder, referenceFlipped, allowedContigsSet, chromosomeGroups]);
 
   // Redraw when dependencies change
-  // OPTIMIZED: Defer canvas rendering to allow UI to update first
+  // OPTIMIZED: Direct rendering without frame delay to eliminate visual glitches
   useEffect(() => {
-    // Use requestAnimationFrame to defer rendering until after the browser has painted
-    // This allows the modal to close and UI to update before heavy canvas rendering
-    const rafId = requestAnimationFrame(() => {
-      drawDotPlot();
-    });
-
-    return () => cancelAnimationFrame(rafId);
+    // Render immediately - the shallow copy optimization makes this fast enough
+    // No need for requestAnimationFrame which causes a visible frame delay
+    drawDotPlot();
   }, [drawDotPlot]);
 
   // Enhanced mouse wheel handler for zooming

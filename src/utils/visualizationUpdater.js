@@ -9,9 +9,17 @@
  * @returns {Object} Updated data with modifications applied
  */
 export const applyModificationsToVisualization = (originalData, modifications, contigOrder) => {
-  // Deep copy original data to avoid mutations
-  const data = JSON.parse(JSON.stringify(originalData));
-  
+  // OPTIMIZED: Use efficient shallow copy instead of expensive JSON deep clone
+  // Only clone the arrays that will be modified (alignments and queries)
+  // This is much faster than JSON.parse(JSON.stringify()) for large datasets
+  const data = {
+    ...originalData,
+    alignments: originalData.alignments.map(a => ({ ...a })), // Shallow copy each alignment
+    queries: originalData.queries.map(q => ({ ...q })), // Shallow copy each query
+    // references array is never modified, so we can reuse the original reference
+    references: originalData.references
+  };
+
   // Apply each modification
   modifications.forEach(modification => {
     switch (modification.type) {
@@ -28,12 +36,12 @@ export const applyModificationsToVisualization = (originalData, modifications, c
         console.warn('Unknown modification type:', modification.type);
     }
   });
-  
+
   // Apply manual contig ordering
   if (contigOrder && Object.keys(contigOrder).length > 0) {
     applyContigReordering(data, contigOrder);
   }
-  
+
   return data;
 };
 
