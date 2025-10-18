@@ -1,5 +1,5 @@
 // src/components/ControlPanel.jsx - Enhanced with chromosome grouping for polyploids
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useTransition } from 'react';
 import {
   Settings,
   RotateCcw,
@@ -14,7 +14,8 @@ import {
   X,
   ChevronUp,
   ChevronDown,
-  HelpCircle
+  HelpCircle,
+  Loader2
 } from 'lucide-react';
 
 const ControlPanel = ({
@@ -49,6 +50,9 @@ const ControlPanel = ({
   const [expandedGroups, setExpandedGroups] = useState(new Set());
   const [showHelp, setShowHelp] = useState(false);
   const [showStatistics, setShowStatistics] = useState(true);
+
+  // Track pending state for chromosome flip operations
+  const [isPending, startTransition] = useTransition();
   const [showVisualizationSettings, setShowVisualizationSettings] = useState(true);
   const [showModifications, setShowModifications] = useState(true);
 
@@ -270,18 +274,21 @@ const ControlPanel = ({
       }
     });
 
-    // Remove existing inversions first (if any)
-    if (indicesToRemove.length > 0) {
-      // Remove from highest index to lowest to avoid index shifting
-      indicesToRemove.sort((a, b) => b - a).forEach(index => {
-        onRemoveModification(index);
-      });
-    }
+    // Wrap state updates in transition to show loading indicator
+    startTransition(() => {
+      // Remove existing inversions first (if any)
+      if (indicesToRemove.length > 0) {
+        // Remove from highest index to lowest to avoid index shifting
+        indicesToRemove.sort((a, b) => b - a).forEach(index => {
+          onRemoveModification(index);
+        });
+      }
 
-    // Add new modifications in a single batch
-    if (newModifications.length > 0 && onAddModifications) {
-      onAddModifications(newModifications);
-    }
+      // Add new modifications in a single batch
+      if (newModifications.length > 0 && onAddModifications) {
+        onAddModifications(newModifications);
+      }
+    });
   };
 
 
@@ -1088,11 +1095,25 @@ const ControlPanel = ({
                   <div className="flex flex-wrap gap-2">
                     <button
                       onClick={handleInvertContig}
-                      className="flex items-center gap-1 px-3 py-2 text-sm bg-purple-500 hover:bg-purple-600 text-white rounded-md transition-colors"
+                      disabled={isPending}
+                      className={`flex items-center gap-1 px-3 py-2 text-sm rounded-md transition-colors ${
+                        isPending
+                          ? 'bg-purple-400 cursor-wait'
+                          : 'bg-purple-500 hover:bg-purple-600'
+                      } text-white`}
                       title="Flip contigs to match reference orientation"
                     >
-                      <RotateCcw size={14} />
-                      Flip to Reference ({selectedContigs.length})
+                      {isPending ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          Flipping...
+                        </>
+                      ) : (
+                        <>
+                          <RotateCcw size={14} />
+                          Flip to Reference ({selectedContigs.length})
+                        </>
+                      )}
                     </button>
 
                     <button
