@@ -230,18 +230,18 @@ const ControlPanel = ({
       const contigsForRef = getContigsForReference(data, selectedRef);
       const lastSelectedIndex = contigsForRef.findIndex(c => c.name === selectedContigs[selectedContigs.length - 1]);
       const currentIndex = contigsForRef.findIndex(c => c.name === contigName);
-      
+
       if (lastSelectedIndex !== -1 && currentIndex !== -1) {
         const start = Math.min(lastSelectedIndex, currentIndex);
         const end = Math.max(lastSelectedIndex, currentIndex);
         const rangeContigs = contigsForRef.slice(start, end + 1).map(c => c.name);
-        
+
         const newSelection = [...new Set([...selectedContigs, ...rangeContigs])];
         onSelectedContigsChange(newSelection);
         return;
       }
     }
-    
+
     // Normal selection
     if (selectedContigs.includes(contigName)) {
       onSelectedContigsChange(selectedContigs.filter(name => name !== contigName));
@@ -292,28 +292,36 @@ const ControlPanel = ({
   };
 
 
-  // Chromosome grouping functions
   const handleCreateGroup = () => {
     if (!newGroupName.trim() || selectedContigs.length === 0) return;
-    
+
     // Validate group name
     if (chromosomeGroups[newGroupName]) {
       alert('Group name already exists');
       return;
     }
-    
-    onCreateChromosomeGroup(newGroupName.trim(), selectedContigs);
+
+    // Preserve the order of contigs as they appear in the list, not selection order
+    const orderedContigs = contigsForSelectedRef
+      .filter(contig => selectedContigs.includes(contig.name))
+      .map(contig => contig.name);
+
+    onCreateChromosomeGroup(newGroupName.trim(), orderedContigs);
     setNewGroupName('');
     setShowGroupCreation(false);
     onSelectedContigsChange([]); // Clear selection
   };
 
-  const handleAddToExistingGroup = (groupName) => {
+    const handleAddToExistingGroup = (groupName) => {
     if (selectedContigs.length === 0) return;
-    
+
     const existingGroup = chromosomeGroups[groupName];
-    const newContigs = [...new Set([...existingGroup.contigs, ...selectedContigs])];
-    
+    // Preserve the order of contigs as they appear in the list, not selection order
+    const orderedSelectedContigs = contigsForSelectedRef
+      .filter(contig => selectedContigs.includes(contig.name))
+      .map(contig => contig.name);
+    const newContigs = [...new Set([...existingGroup.contigs, ...orderedSelectedContigs])];
+
     onCreateChromosomeGroup(groupName, newContigs);
     onSelectedContigsChange([]); // Clear selection
   };
@@ -923,7 +931,7 @@ const ControlPanel = ({
                     {contigsForSelectedRef.length} total
                   </span>
                 </div>
-                
+
                 <div className="max-h-96 overflow-y-auto border border-gray-200 rounded-md">
                   {contigsForSelectedRef.length === 0 ? (
                     <div className="p-3 text-sm text-gray-500 text-center">
@@ -1063,7 +1071,7 @@ const ControlPanel = ({
                     ))
                   )}
                 </div>
-                
+
                 {selectedContigs.length > 0 && (
                   <div className="mt-2 text-xs text-gray-600">
                     Selected: {selectedContigs.length} contigs
@@ -1141,7 +1149,7 @@ const ControlPanel = ({
                     <p className="text-xs text-blue-700 mb-2">
                       Group selected contigs for polyploid chromosome copies (e.g., Chr08.1, Chr08.2)
                     </p>
-                    
+
                     {!showGroupCreation ? (
                       <button
                         onClick={() => setShowGroupCreation(true)}
