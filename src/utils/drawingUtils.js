@@ -212,24 +212,12 @@ export const drawSingleAlignment = (ctx, alignment, scales, options) => {
   let y1 = (queryOffset + alignment.queryStart) * queryScale + margin;
   let y2 = (queryOffset + alignment.queryEnd) * queryScale + margin;
 
-  // Track if this alignment needs flipping (minimap2 suggests flip)
-  const needsFlip = alignment.needsFlip === true;
-
-  // Always show contigs in aligned orientation (as minimap2 suggests)
-  // Flip the query coordinates for alignments that need flipping
-  if (needsFlip) {
-    const querySeq = scales.orderedQueries.find(q => q.name === alignment.query);
-    if (querySeq) {
-      const tempY1 = (queryOffset + (querySeq.length - alignment.queryEnd)) * queryScale + margin;
-      const tempY2 = (queryOffset + (querySeq.length - alignment.queryStart)) * queryScale + margin;
-      y1 = tempY1;
-      y2 = tempY2;
-    }
+  // For reverse alignments, swap the y coordinates to create negative slope (top-left to bottom-right)
+  // Forward alignments: positive slope (bottom-left to top-right) - green in default colors
+  // Reverse alignments: negative slope (top-left to bottom-right) - blue in default colors
+  if (alignment.alignedOrientation === '-') {
+    [y1, y2] = [y2, y1]; // Swap y coordinates for reverse alignments
   }
-
-  // Note: User inversions are already applied in visualizationUpdater.js
-  // The alignment.queryStart/queryEnd coordinates have already been transformed
-  // So we don't need to flip them again here (that would create a double-flip)
   
   // Determine color based on modifications and view mode
   let strokeColor = getAlignmentColor(alignment, viewMode, settings, modification, options);

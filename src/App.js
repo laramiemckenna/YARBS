@@ -622,13 +622,22 @@ function App() {
 
   const exportSession = () => {
     // Export complete session including all workspaces and visualization settings
+    // Convert Sets to Arrays for JSON serialization
+    const serializedWorkspaces = {};
+    Object.entries(referenceWorkspaces).forEach(([refName, workspace]) => {
+      serializedWorkspaces[refName] = {
+        ...workspace,
+        uninformativeContigs: Array.from(workspace.uninformativeContigs || [])
+      };
+    });
+
     const sessionFile = {
       version: "1.0",
       timestamp: new Date().toISOString(),
       note: "YARBS session export - contains all workspaces and settings. Use this file to reload your work later.",
 
       // All workspace data (per-reference state)
-      workspaces: referenceWorkspaces,
+      workspaces: serializedWorkspaces,
 
       // Visualization settings to restore the view
       visualizationSettings: {
@@ -765,9 +774,19 @@ function App() {
     // Sort by change number
     allChanges.sort((a, b) => a.changeNumber - b.changeNumber);
 
+    // Helper function to escape CSV fields
+    const escapeCSVField = (field) => {
+      const stringField = String(field);
+      // If field contains comma, quote, or newline, wrap in quotes and escape internal quotes
+      if (stringField.includes(',') || stringField.includes('"') || stringField.includes('\n')) {
+        return `"${stringField.replace(/"/g, '""')}"`;
+      }
+      return stringField;
+    };
+
     // Generate CSV content
     const headers = ['Change #', 'Reference', 'Modification Type', 'Contig Name', 'Contig Length (bp)', 'Position', 'Timestamp', 'Notes'];
-    const csvRows = [headers.join(',')];
+    const csvRows = [headers.map(escapeCSVField).join(',')];
 
     allChanges.forEach(change => {
       const row = [
@@ -778,9 +797,9 @@ function App() {
         change.contigLength,
         change.position,
         change.timestamp,
-        `"${change.notes}"` // Quote notes field in case it contains commas
+        change.notes
       ];
-      csvRows.push(row.join(','));
+      csvRows.push(row.map(escapeCSVField).join(','));
     });
 
     // Add metadata footer

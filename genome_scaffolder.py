@@ -495,223 +495,226 @@ class GenomeScaffolder:
         self.logger.info(f"Reports written to {report_file} and {text_report_file}")
         return report_file, text_report_file
 
-    def _find_telomeres_in_sequence(self, sequence, seq_name):
-        """Find telomere repeats in a sequence
+    # COMMENTED OUT: Telomere finding - used only for plotting, can be re-enabled in future revisions
+    # def _find_telomeres_in_sequence(self, sequence, seq_name):
+    #     """Find telomere repeats in a sequence
+    #
+    #     Args:
+    #         sequence: DNA sequence string
+    #         seq_name: Name of the sequence (for logging)
+    #
+    #     Returns:
+    #         List of telomere regions [{'start': int, 'end': int, 'density': float}, ...]
+    #     """
+    #     telo_seq = self.telo_params['sequence']
+    #     telo_len = len(telo_seq)
+    #     seq_len = len(sequence)
+    #     telomeres = []
+    #
+    #     # Search both ends of the sequence
+    #     for region_start, region_end, label in [(0, min(self.telo_params['max_dist_2end'], seq_len), 'start'),
+    #                                               (max(0, seq_len - self.telo_params['max_dist_2end']), seq_len, 'end')]:
+    #
+    #         region_seq = sequence[region_start:region_end].upper()
+    #         region_len = len(region_seq)
+    #
+    #         if region_len == 0:
+    #             continue
+    #
+    #         # Find all occurrences of telomere repeat in this region
+    #         telo_positions = []
+    #         pos = 0
+    #         while pos < region_len - telo_len + 1:
+    #             if region_seq[pos:pos + telo_len] == telo_seq:
+    #                 telo_positions.append(pos)
+    #                 pos += telo_len  # Skip ahead
+    #             else:
+    #                 pos += 1
+    #
+    #         # Cluster nearby telomere repeats
+    #         if not telo_positions:
+    #             continue
+    #
+    #         # Group positions that are close together
+    #         clusters = []
+    #         current_cluster = [telo_positions[0]]
+    #
+    #         for pos in telo_positions[1:]:
+    #             if pos - current_cluster[-1] <= self.telo_params['max_dist_btw_telo']:
+    #                 current_cluster.append(pos)
+    #             else:
+    #                 if len(current_cluster) > 0:
+    #                     clusters.append(current_cluster)
+    #                 current_cluster = [pos]
+    #
+    #         if current_cluster:
+    #             clusters.append(current_cluster)
+    #
+    #         # Filter clusters by size and density
+    #         for cluster in clusters:
+    #             cluster_start = cluster[0]
+    #             cluster_end = cluster[-1] + telo_len
+    #             cluster_size = cluster_end - cluster_start
+    #             num_repeats = len(cluster)
+    #             density = (num_repeats * telo_len) / cluster_size if cluster_size > 0 else 0
+    #
+    #             if (cluster_size >= self.telo_params['min_telo_size'] and
+    #                 density >= self.telo_params['min_telo_dens']):
+    #
+    #                 telomeres.append({
+    #                     'start': region_start + cluster_start,
+    #                     'end': region_start + cluster_end,
+    #                     'density': density,
+    #                     'location': label,
+    #                     'num_repeats': num_repeats
+    #                 })
+    #
+    #     return telomeres
 
-        Args:
-            sequence: DNA sequence string
-            seq_name: Name of the sequence (for logging)
+    # COMMENTED OUT: Contig structure analysis - used only for plotting, can be re-enabled in future revisions
+    # def _analyze_contig_structure(self, scaffolded_fasta):
+    #     """Analyze contig structure, gaps, and telomeres in scaffolded sequences
+    #
+    #     Args:
+    #         scaffolded_fasta: Path to the scaffolded FASTA file
+    #
+    #     Returns:
+    #         Dictionary mapping scaffold names to their structure information
+    #     """
+    #     structure_data = {}
+    #
+    #     # Read scaffolded sequences
+    #     for record in SeqIO.parse(scaffolded_fasta, "fasta"):
+    #         scaffold_name = record.id
+    #         sequence = str(record.seq)
+    #         seq_len = len(sequence)
+    #
+    #         # Skip if below minimum chromosome size
+    #         if seq_len < self.telo_params['min_chr_size']:
+    #             self.logger.debug(f"Skipping {scaffold_name} - below minimum size ({seq_len:,} < {self.telo_params['min_chr_size']:,})")
+    #             continue
+    #
+    #         # Find gap regions (N stretches)
+    #         gaps = []
+    #         contigs = []
+    #         in_gap = False
+    #         gap_start = 0
+    #         contig_start = 0
+    #
+    #         for i, base in enumerate(sequence):
+    #             if base.upper() == 'N':
+    #                 if not in_gap:
+    #                     # Start of new gap
+    #                     if i > contig_start:
+    #                         contigs.append({'start': contig_start, 'end': i})
+    #                     gap_start = i
+    #                     in_gap = True
+    #             else:
+    #                 if in_gap:
+    #                     # End of gap
+    #                     gap_size = i - gap_start
+    #                     if gap_size >= self.telo_params['min_contig_gap_size']:
+    #                         gaps.append({'start': gap_start, 'end': i, 'size': gap_size})
+    #                     contig_start = i
+    #                     in_gap = False
+    #
+    #         # Handle final region
+    #         if in_gap:
+    #             gap_size = seq_len - gap_start
+    #             if gap_size >= self.telo_params['min_contig_gap_size']:
+    #                 gaps.append({'start': gap_start, 'end': seq_len, 'size': gap_size})
+    #         else:
+    #             if seq_len > contig_start:
+    #                 contigs.append({'start': contig_start, 'end': seq_len})
+    #
+    #         # Find telomeres
+    #         telomeres = self._find_telomeres_in_sequence(sequence, scaffold_name)
+    #
+    #         structure_data[scaffold_name] = {
+    #             'length': seq_len,
+    #             'contigs': contigs,
+    #             'gaps': gaps,
+    #             'telomeres': telomeres,
+    #             'num_contigs': len(contigs),
+    #             'num_gaps': len(gaps),
+    #             'num_telomeres': len(telomeres)
+    #         }
+    #
+    #         self.logger.info(f"{scaffold_name}: {len(contigs)} contigs, {len(gaps)} gaps, {len(telomeres)} telomeres")
+    #
+    #     return structure_data
 
-        Returns:
-            List of telomere regions [{'start': int, 'end': int, 'density': float}, ...]
-        """
-        telo_seq = self.telo_params['sequence']
-        telo_len = len(telo_seq)
-        seq_len = len(sequence)
-        telomeres = []
-
-        # Search both ends of the sequence
-        for region_start, region_end, label in [(0, min(self.telo_params['max_dist_2end'], seq_len), 'start'),
-                                                  (max(0, seq_len - self.telo_params['max_dist_2end']), seq_len, 'end')]:
-
-            region_seq = sequence[region_start:region_end].upper()
-            region_len = len(region_seq)
-
-            if region_len == 0:
-                continue
-
-            # Find all occurrences of telomere repeat in this region
-            telo_positions = []
-            pos = 0
-            while pos < region_len - telo_len + 1:
-                if region_seq[pos:pos + telo_len] == telo_seq:
-                    telo_positions.append(pos)
-                    pos += telo_len  # Skip ahead
-                else:
-                    pos += 1
-
-            # Cluster nearby telomere repeats
-            if not telo_positions:
-                continue
-
-            # Group positions that are close together
-            clusters = []
-            current_cluster = [telo_positions[0]]
-
-            for pos in telo_positions[1:]:
-                if pos - current_cluster[-1] <= self.telo_params['max_dist_btw_telo']:
-                    current_cluster.append(pos)
-                else:
-                    if len(current_cluster) > 0:
-                        clusters.append(current_cluster)
-                    current_cluster = [pos]
-
-            if current_cluster:
-                clusters.append(current_cluster)
-
-            # Filter clusters by size and density
-            for cluster in clusters:
-                cluster_start = cluster[0]
-                cluster_end = cluster[-1] + telo_len
-                cluster_size = cluster_end - cluster_start
-                num_repeats = len(cluster)
-                density = (num_repeats * telo_len) / cluster_size if cluster_size > 0 else 0
-
-                if (cluster_size >= self.telo_params['min_telo_size'] and
-                    density >= self.telo_params['min_telo_dens']):
-
-                    telomeres.append({
-                        'start': region_start + cluster_start,
-                        'end': region_start + cluster_end,
-                        'density': density,
-                        'location': label,
-                        'num_repeats': num_repeats
-                    })
-
-        return telomeres
-
-    def _analyze_contig_structure(self, scaffolded_fasta):
-        """Analyze contig structure, gaps, and telomeres in scaffolded sequences
-
-        Args:
-            scaffolded_fasta: Path to the scaffolded FASTA file
-
-        Returns:
-            Dictionary mapping scaffold names to their structure information
-        """
-        structure_data = {}
-
-        # Read scaffolded sequences
-        for record in SeqIO.parse(scaffolded_fasta, "fasta"):
-            scaffold_name = record.id
-            sequence = str(record.seq)
-            seq_len = len(sequence)
-
-            # Skip if below minimum chromosome size
-            if seq_len < self.telo_params['min_chr_size']:
-                self.logger.debug(f"Skipping {scaffold_name} - below minimum size ({seq_len:,} < {self.telo_params['min_chr_size']:,})")
-                continue
-
-            # Find gap regions (N stretches)
-            gaps = []
-            contigs = []
-            in_gap = False
-            gap_start = 0
-            contig_start = 0
-
-            for i, base in enumerate(sequence):
-                if base.upper() == 'N':
-                    if not in_gap:
-                        # Start of new gap
-                        if i > contig_start:
-                            contigs.append({'start': contig_start, 'end': i})
-                        gap_start = i
-                        in_gap = True
-                else:
-                    if in_gap:
-                        # End of gap
-                        gap_size = i - gap_start
-                        if gap_size >= self.telo_params['min_contig_gap_size']:
-                            gaps.append({'start': gap_start, 'end': i, 'size': gap_size})
-                        contig_start = i
-                        in_gap = False
-
-            # Handle final region
-            if in_gap:
-                gap_size = seq_len - gap_start
-                if gap_size >= self.telo_params['min_contig_gap_size']:
-                    gaps.append({'start': gap_start, 'end': seq_len, 'size': gap_size})
-            else:
-                if seq_len > contig_start:
-                    contigs.append({'start': contig_start, 'end': seq_len})
-
-            # Find telomeres
-            telomeres = self._find_telomeres_in_sequence(sequence, scaffold_name)
-
-            structure_data[scaffold_name] = {
-                'length': seq_len,
-                'contigs': contigs,
-                'gaps': gaps,
-                'telomeres': telomeres,
-                'num_contigs': len(contigs),
-                'num_gaps': len(gaps),
-                'num_telomeres': len(telomeres)
-            }
-
-            self.logger.info(f"{scaffold_name}: {len(contigs)} contigs, {len(gaps)} gaps, {len(telomeres)} telomeres")
-
-        return structure_data
-
-    def _plot_contig_structure(self, structure_data, output_file):
-        """Create a visualization of contig structure with alternating colors and telomere markers
-
-        Args:
-            structure_data: Dictionary from _analyze_contig_structure
-            output_file: Path to save the plot
-        """
-        if not structure_data:
-            self.logger.warning("No structure data to plot")
-            return
-
-        # Setup plot
-        num_scaffolds = len(structure_data)
-        fig, ax = plt.subplots(figsize=(12, max(3, num_scaffolds * 0.6)))
-
-        # Define colors (viridis-like palette)
-        colors = ['#440154', '#31688e', '#35b779', '#fde724', '#8c2981']
-
-        y_pos = 0
-        y_positions = {}
-        scaffold_labels = []
-
-        for scaffold_name, data in sorted(structure_data.items()):
-            scaffold_labels.append(scaffold_name)
-            y_positions[scaffold_name] = y_pos
-            scaffold_len = data['length']
-
-            # Draw contigs with alternating colors
-            for i, contig in enumerate(data['contigs']):
-                color = colors[i % len(colors)]
-                start = contig['start']
-                end = contig['end']
-                width = end - start
-
-                # Draw contig as rectangle
-                rect = mpatches.Rectangle((start, y_pos - 0.3), width, 0.6,
-                                          facecolor=color, edgecolor='black', linewidth=0.5)
-                ax.add_patch(rect)
-
-            # Draw telomeres as red stars
-            for telo in data['telomeres']:
-                telo_pos = (telo['start'] + telo['end']) / 2
-                ax.plot(telo_pos, y_pos, marker='*', color='red', markersize=12, zorder=10)
-
-            y_pos += 1
-
-        # Set axis properties
-        ax.set_ylim(-0.5, num_scaffolds - 0.5)
-        ax.set_yticks(range(num_scaffolds))
-        ax.set_yticklabels(scaffold_labels)
-        ax.set_xlabel('Position (bp)', fontsize=12)
-        ax.set_title('Chromosome Structure: Contigs, Gaps, and Telomeres', fontsize=14, fontweight='bold')
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-
-        # Format x-axis with commas
-        ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{int(x):,}'))
-
-        # Add legend
-        legend_elements = [
-            mpatches.Patch(facecolor='#440154', edgecolor='black', label='Contigs (color changes show boundaries)'),
-            plt.Line2D([0], [0], marker='*', color='w', markerfacecolor='red', markersize=12, label='Telomere')
-        ]
-        ax.legend(handles=legend_elements, loc='upper right', fontsize=10)
-
-        plt.tight_layout()
-        plt.savefig(output_file, dpi=600, bbox_inches='tight')
-        plt.close()
-
-        self.logger.info(f"Contig structure plot saved to {output_file}")
+    # COMMENTED OUT: Contig plotting visualization - can be re-enabled in future revisions
+    # def _plot_contig_structure(self, structure_data, output_file):
+    #     """Create a visualization of contig structure with alternating colors and telomere markers
+    #
+    #     Args:
+    #         structure_data: Dictionary from _analyze_contig_structure
+    #         output_file: Path to save the plot
+    #     """
+    #     if not structure_data:
+    #         self.logger.warning("No structure data to plot")
+    #         return
+    #
+    #     # Setup plot
+    #     num_scaffolds = len(structure_data)
+    #     fig, ax = plt.subplots(figsize=(12, max(3, num_scaffolds * 0.6)))
+    #
+    #     # Define colors (viridis-like palette)
+    #     colors = ['#440154', '#31688e', '#35b779', '#fde724', '#8c2981']
+    #
+    #     y_pos = 0
+    #     y_positions = {}
+    #     scaffold_labels = []
+    #
+    #     for scaffold_name, data in sorted(structure_data.items()):
+    #         scaffold_labels.append(scaffold_name)
+    #         y_positions[scaffold_name] = y_pos
+    #         scaffold_len = data['length']
+    #
+    #         # Draw contigs with alternating colors
+    #         for i, contig in enumerate(data['contigs']):
+    #             color = colors[i % len(colors)]
+    #             start = contig['start']
+    #             end = contig['end']
+    #             width = end - start
+    #
+    #             # Draw contig as rectangle
+    #             rect = mpatches.Rectangle((start, y_pos - 0.3), width, 0.6,
+    #                                       facecolor=color, edgecolor='black', linewidth=0.5)
+    #             ax.add_patch(rect)
+    #
+    #         # Draw telomeres as red stars
+    #         for telo in data['telomeres']:
+    #             telo_pos = (telo['start'] + telo['end']) / 2
+    #             ax.plot(telo_pos, y_pos, marker='*', color='red', markersize=12, zorder=10)
+    #
+    #         y_pos += 1
+    #
+    #     # Set axis properties
+    #     ax.set_ylim(-0.5, num_scaffolds - 0.5)
+    #     ax.set_yticks(range(num_scaffolds))
+    #     ax.set_yticklabels(scaffold_labels)
+    #     ax.set_xlabel('Position (bp)', fontsize=12)
+    #     ax.set_title('Chromosome Structure: Contigs, Gaps, and Telomeres', fontsize=14, fontweight='bold')
+    #     ax.spines['top'].set_visible(False)
+    #     ax.spines['right'].set_visible(False)
+    #
+    #     # Format x-axis with commas
+    #     ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{int(x):,}'))
+    #
+    #     # Add legend
+    #     legend_elements = [
+    #         mpatches.Patch(facecolor='#440154', edgecolor='black', label='Contigs (color changes show boundaries)'),
+    #         plt.Line2D([0], [0], marker='*', color='w', markerfacecolor='red', markersize=12, label='Telomere')
+    #     ]
+    #     ax.legend(handles=legend_elements, loc='upper right', fontsize=10)
+    #
+    #     plt.tight_layout()
+    #     plt.savefig(output_file, dpi=600, bbox_inches='tight')
+    #     plt.close()
+    #
+    #     self.logger.info(f"Contig structure plot saved to {output_file}")
 
     def run_scaffolding(self):
         """Run the complete scaffolding process"""
@@ -757,30 +760,31 @@ class GenomeScaffolder:
             self.logger.error(f"Scaffolding failed: {str(e)}")
             raise
 
-    def create_contig_telomere_plot(self, scaffolded_fasta=None):
-        """Create contig structure plot with telomeres
-
-        Args:
-            scaffolded_fasta: Path to scaffolded FASTA (if None, will use default output name)
-        """
-        if scaffolded_fasta is None:
-            scaffolded_fasta = f"{self.output_prefix}_scaffolded.fasta"
-
-        self.logger.info("Creating contig/telomere structure plot")
-        self.logger.info(f"Telomere parameters: {self.telo_params}")
-
-        # Analyze structure
-        structure_data = self._analyze_contig_structure(scaffolded_fasta)
-
-        if not structure_data:
-            self.logger.warning("No scaffolds meet minimum size criteria for plotting")
-            return
-
-        # Create plot
-        output_plot = f"{self.output_prefix}_contig_telomere_structure.png"
-        self._plot_contig_structure(structure_data, output_plot)
-
-        return output_plot
+    # COMMENTED OUT: Contig plotting functionality - can be re-enabled in future revisions
+    # def create_contig_telomere_plot(self, scaffolded_fasta=None):
+    #     """Create contig structure plot with telomeres
+    #
+    #     Args:
+    #         scaffolded_fasta: Path to scaffolded FASTA (if None, will use default output name)
+    #     """
+    #     if scaffolded_fasta is None:
+    #         scaffolded_fasta = f"{self.output_prefix}_scaffolded.fasta"
+    #
+    #     self.logger.info("Creating contig/telomere structure plot")
+    #     self.logger.info(f"Telomere parameters: {self.telo_params}")
+    #
+    #     # Analyze structure
+    #     structure_data = self._analyze_contig_structure(scaffolded_fasta)
+    #
+    #     if not structure_data:
+    #         self.logger.warning("No scaffolds meet minimum size criteria for plotting")
+    #         return
+    #
+    #     # Create plot
+    #     output_plot = f"{self.output_prefix}_contig_telomere_structure.png"
+    #     self._plot_contig_structure(structure_data, output_plot)
+    #
+    #     return output_plot
 
 def main():
     parser = argparse.ArgumentParser(
@@ -848,15 +852,16 @@ Telomere Analysis Parameters:
     # Run scaffolding
     scaffolded_file = scaffolder.run_scaffolding()
 
-    # Create plot if requested
-    if args.plot_structure and scaffolded_file:
-        try:
-            plot_file = scaffolder.create_contig_telomere_plot(scaffolded_file)
-            if plot_file:
-                print(f"\nContig/telomere structure plot created: {plot_file}")
-        except Exception as e:
-            print(f"\nWarning: Failed to create structure plot: {str(e)}")
-            print("Scaffolding completed successfully, but plotting failed.")
+    # COMMENTED OUT: Plotting functionality - can be re-enabled in future revisions
+    # # Create plot if requested
+    # if args.plot_structure and scaffolded_file:
+    #     try:
+    #         plot_file = scaffolder.create_contig_telomere_plot(scaffolded_file)
+    #         if plot_file:
+    #             print(f"\nContig/telomere structure plot created: {plot_file}")
+    #     except Exception as e:
+    #         print(f"\nWarning: Failed to create structure plot: {str(e)}")
+    #         print("Scaffolding completed successfully, but plotting failed.")
 
     return 0
 
