@@ -60,6 +60,74 @@ const DotPlot = ({
     return data ? calculateVisualModifications(data.alignments, modifications) : { modifiedAlignments: new Map() };
   }, [data, modifications]);
 
+  // OPTIMIZED: Memoize contig alignments map to avoid rebuilding on every render
+  const contigAlignmentsMap = useMemo(() => {
+    if (!data || !selectedRef) return new Map();
+
+    const map = new Map();
+    data.alignments
+      .filter(a => a.ref === selectedRef && (a.tag === 'unique' || a.tag === 'unique_short'))
+      .forEach(alignment => {
+        if (!map.has(alignment.query)) {
+          map.set(alignment.query, []);
+        }
+        map.get(alignment.query).push(alignment);
+      });
+    return map;
+  }, [data, selectedRef]);
+
+  // OPTIMIZED: Memoize allowed contigs set to avoid recalculating on every render
+  const allowedContigsSet = useMemo(() => {
+    if (!data || !selectedRef) return new Set();
+
+    const allowed = new Set();
+
+    contigAlignmentsMap.forEach((alignments, contigName) => {
+      // Check if contig is in a chromosome group
+      const isInGroup = chromosomeGroups && Object.values(chromosomeGroups).some(group =>
+        group.contigs && group.contigs.includes(contigName)
+      );
+
+      // Check if contig has modifications
+      const hasModifications = modifications && modifications.some(m =>
+        m.query === contigName || m.contigName === contigName
+      );
+
+      // Always show grouped or modified contigs
+      if (isInGroup || hasModifications) {
+        allowed.add(contigName);
+        return;
+      }
+
+      // Check if contig is marked as uninformative
+      if (uninformativeContigs && uninformativeContigs.has(contigName)) {
+        return; // Skip
+      }
+
+      // Get the actual contig info
+      const contigInfo = data.queries.find(q => q.name === contigName);
+      if (!contigInfo) return;
+
+      // Check minimum contig size filter
+      if (settings.minContigSize && settings.minContigSize > 0) {
+        if (contigInfo.length < settings.minContigSize) {
+          return; // Skip
+        }
+      }
+
+      // Calculate total unique alignment length
+      const totalLength = alignments.reduce((sum, a) => sum + a.length, 0);
+
+      // Check unique alignment ratio
+      const uniqueRatio = totalLength / contigInfo.length;
+      if (uniqueRatio >= settings.minUniqueRatio) {
+        allowed.add(contigName);
+      }
+    });
+
+    return allowed;
+  }, [data, selectedRef, contigAlignmentsMap, chromosomeGroups, modifications, uninformativeContigs, settings.minContigSize, settings.minUniqueRatio]);
+
   // Main drawing function
   const drawDotPlot = useCallback(() => {
     if (!data || !canvasRef.current) return;
@@ -87,91 +155,15 @@ const DotPlot = ({
       // Get filtered alignments based on current settings
       let filteredAlignments = getFilteredAlignments(data, selectedRef, settings);
 
-      // Further filter alignments to only show contigs that pass the filters
-      // This matches the EXACT same filtering logic used in ControlPanel.getContigsForReference
-      // Build a set of contigs that should be hidden
-      const hiddenContigs = new Set();
-
-      // For each contig, check if it should be hidden based on filters
-      const contigAlignments = new Map();
-
-      // IMPORTANT: Group alignments from ALL unique/unique_short alignments (not filteredAlignments)
-      // This matches ControlPanel which doesn't apply minAlignmentLength when calculating unique ratio
-      // filteredAlignments is only for visual display, not for determining which contigs to show
-      data.alignments
-        .filter(a => a.ref === selectedRef && (a.tag === 'unique' || a.tag === 'unique_short'))
-        .forEach(alignment => {
-          if (!contigAlignments.has(alignment.query)) {
-            contigAlignments.set(alignment.query, []);
-          }
-          contigAlignments.get(alignment.query).push(alignment);
-        });
-
-      // Build a set of contigs that SHOULD be visible
-      const allowedContigs = new Set();
-
-      contigAlignments.forEach((alignments, contigName) => {
-        // Check if contig is in a chromosome group
-        const isInGroup = chromosomeGroups && Object.values(chromosomeGroups).some(group =>
-          group.contigs && group.contigs.includes(contigName)
-        );
-
-        // Check if contig has modifications
-        const hasModifications = modifications && modifications.some(m =>
-          m.query === contigName || m.contigName === contigName
-        );
-
-        // Always show grouped or modified contigs
-        if (isInGroup || hasModifications) {
-          allowedContigs.add(contigName);
-          return;
-        }
-
-        // Check if contig is marked as uninformative
-        if (uninformativeContigs && uninformativeContigs.has(contigName)) {
-          return; // Skip, don't add to allowed
-        }
-
-        // Get the actual contig info from queries (contains the real contig length)
-        const contigInfo = data.queries.find(q => q.name === contigName);
-        if (!contigInfo) {
-          return; // Skip, don't add to allowed
-        }
-
-        // Check minimum contig size filter (use ACTUAL contig length not alignment length)
-        if (settings.minContigSize && settings.minContigSize > 0) {
-          if (contigInfo.length < settings.minContigSize) {
-            return; // Skip, don't add to allowed
-          }
-        }
-
-        // Calculate total unique alignment length for this contig
-        const totalLength = alignments.reduce((sum, a) => sum + a.length, 0);
-
-        // Check unique alignment ratio only (minAlignmentLength only affects visualization, not contig list)
-        const uniqueRatio = totalLength / contigInfo.length;
-        if (uniqueRatio >= settings.minUniqueRatio) {
-          allowedContigs.add(contigName);
-        }
-      });
-
-      // Now hide ALL contigs that are NOT in the allowed set
-      // This ensures we hide contigs that weren't even evaluated (e.g., from other references, repetitive, etc.)
-      const allContigsInFilteredAlignments = new Set(filteredAlignments.map(a => a.query));
-      allContigsInFilteredAlignments.forEach(contigName => {
-        if (!allowedContigs.has(contigName)) {
-          hiddenContigs.add(contigName);
-        }
-      });
-
-      // Filter out alignments from hidden contigs
-      filteredAlignments = filteredAlignments.filter(a => !hiddenContigs.has(a.query));
+      // OPTIMIZED: Use pre-computed memoized allowedContigsSet instead of recalculating
+      // Filter out alignments from contigs not in the allowed set
+      filteredAlignments = filteredAlignments.filter(a => allowedContigsSet.has(a.query));
 
       // Create a filtered data object with only visible queries
       // This ensures the Y-axis scale only includes visible contigs (no empty space)
       const filteredData = {
         ...data,
-        queries: data.queries.filter(q => allowedContigs.has(q.name)),
+        queries: data.queries.filter(q => allowedContigsSet.has(q.name)),
         alignments: filteredAlignments
       };
 
@@ -247,12 +239,19 @@ const DotPlot = ({
       ctx.textAlign = 'right';
       ctx.fillText(`${modifications.length} modifications applied`, canvasSize.width - 10, 25);
     }
-    
-  }, [data, settings, viewMode, selectedRef, zoom, pan, selectedContigs, canvasSize, modifications, visualMods, contigOrder, referenceFlipped, uninformativeContigs, chromosomeGroups]);
+
+  }, [data, settings, viewMode, selectedRef, zoom, pan, selectedContigs, canvasSize, modifications, visualMods, contigOrder, referenceFlipped, allowedContigsSet, chromosomeGroups]);
 
   // Redraw when dependencies change
+  // OPTIMIZED: Defer canvas rendering to allow UI to update first
   useEffect(() => {
-    drawDotPlot();
+    // Use requestAnimationFrame to defer rendering until after the browser has painted
+    // This allows the modal to close and UI to update before heavy canvas rendering
+    const rafId = requestAnimationFrame(() => {
+      drawDotPlot();
+    });
+
+    return () => cancelAnimationFrame(rafId);
   }, [drawDotPlot]);
 
   // Enhanced mouse wheel handler for zooming

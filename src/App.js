@@ -157,24 +157,34 @@ function App() {
   // Separate function to finish loading data after N50 modal
   const finishDataLoad = async (parsedData, sessionFile) => {
     try {
-      // Store both original and working copies
-      setOriginalData(JSON.parse(JSON.stringify(parsedData))); // Deep copy
+      // Store original data - use shallow copy since we won't mutate the parsed data
+      // We only need to preserve the original structure for reset functionality
+      setOriginalData(parsedData);
       setData(parsedData);
 
-      // Initialize workspaces for all references
+      // OPTIMIZED: Single-pass workspace initialization - O(n) instead of O(n*m)
+      // Build a map of reference -> contigs in one pass through alignments
+      const refToContigs = {};
+
+      // Initialize maps for all references
+      parsedData.references.forEach(ref => {
+        refToContigs[ref.name] = new Set();
+      });
+
+      // Single pass through alignments to populate all reference maps
+      parsedData.alignments.forEach(alignment => {
+        if (refToContigs[alignment.ref]) {
+          refToContigs[alignment.ref].add(alignment.query);
+        }
+      });
+
+      // Now build workspaces using the pre-computed maps
       const initialWorkspaces = {};
 
       parsedData.references.forEach(ref => {
-        // Create reference-specific contig order
-        // Only include contigs that have alignments to this reference
         const contigsForRef = {};
         let orderIndex = 0;
-
-        // Get all unique contigs that align to this reference
-        const contigsInRef = new Set();
-        parsedData.alignments
-          .filter(a => a.ref === ref.name)
-          .forEach(a => contigsInRef.add(a.query));
+        const contigsInRef = refToContigs[ref.name];
 
         // Assign order indices based on original query order
         parsedData.queries.forEach((query) => {
@@ -184,7 +194,7 @@ function App() {
         });
 
         initialWorkspaces[ref.name] = {
-          contigOrder: contigsForRef, // Reference-specific contig order
+          contigOrder: contigsForRef,
           modifications: [],
           chromosomeGroups: {},
           uninformativeContigs: new Set(),
@@ -266,13 +276,23 @@ function App() {
         }
       } else {
         // No session file, use default initialization
-        setReferenceWorkspaces(initialWorkspaces);
-        if (parsedData.references.length > 0) {
-          setSelectedRef(parsedData.references[0].name);
-        }
+        // OPTIMIZED: Batch state updates using React 18's automatic batching
+        // This ensures only one re-render instead of multiple
+        const defaultRef = parsedData.references.length > 0 ? parsedData.references[0].name : '';
+
+        // Use startTransition to batch these updates together
+        React.startTransition(() => {
+          setReferenceWorkspaces(initialWorkspaces);
+          setSelectedRef(defaultRef);
+          setLockedChromosomes(new Set());
+        });
+
+        // Return early to prevent redundant state setting below
+        console.log('Successfully loaded data:', parsedData);
+        return;
       }
 
-      // Reset legacy state
+      // Reset legacy state (only executed for session file path)
       setLockedChromosomes(new Set());
 
       console.log('Successfully loaded data:', parsedData);
@@ -305,7 +325,9 @@ function App() {
       const updatedData = applyModificationsToVisualization(originalData, modifications, contigOrder);
       setData(updatedData);
     } else if (originalData) {
-      setData(JSON.parse(JSON.stringify(originalData))); // Reset to original
+      // OPTIMIZED: No need for deep copy - just use the original reference
+      // Since we're not mutating originalData, we can safely share the reference
+      setData(originalData);
     }
   }, [modifications, originalData, contigOrder]);
 
