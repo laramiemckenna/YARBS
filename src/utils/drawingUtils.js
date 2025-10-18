@@ -212,11 +212,19 @@ export const drawSingleAlignment = (ctx, alignment, scales, options) => {
   let y1 = (queryOffset + alignment.queryStart) * queryScale + margin;
   let y2 = (queryOffset + alignment.queryEnd) * queryScale + margin;
 
-  // For reverse alignments, swap the y coordinates to create negative slope (top-left to bottom-right)
-  // Forward alignments: positive slope (bottom-left to top-right) - green in default colors
-  // Reverse alignments: negative slope (top-left to bottom-right) - blue in default colors
-  if (alignment.alignedOrientation === '-') {
-    [y1, y2] = [y2, y1]; // Swap y coordinates for reverse alignments
+  // Determine if we need to swap y coordinates based on orientation and inversion
+  // Forward alignments normally have positive slope (bottom-left to top-right)
+  // Reverse alignments normally have negative slope (top-left to bottom-right)
+  // When a contig is inverted, the slope should flip
+  let shouldSwapY = alignment.alignedOrientation === '-';
+
+  // If contig is inverted, flip the swap behavior
+  if (options.isContigInverted) {
+    shouldSwapY = !shouldSwapY;
+  }
+
+  if (shouldSwapY) {
+    [y1, y2] = [y2, y1]; // Swap y coordinates to create negative slope
   }
   
   // Determine color based on modifications and view mode
