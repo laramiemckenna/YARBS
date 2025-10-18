@@ -321,7 +321,7 @@ function App() {
 
   // Apply modifications to visualization in real-time
   useEffect(() => {
-    if (originalData && modifications.length > 0) {
+    if (originalData && (modifications.length > 0 || Object.keys(contigOrder).length > 0)) {
       const updatedData = applyModificationsToVisualization(originalData, modifications, contigOrder);
       setData(updatedData);
     } else if (originalData) {
