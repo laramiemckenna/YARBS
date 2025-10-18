@@ -888,7 +888,7 @@ function App() {
             onClick={data ? resetToLoadPage : undefined}
             title={data ? 'Click to return to load page' : ''}
           >
-            <img src="/YARBS.svg" alt="YARBS" className="h-16 w-16" />
+            <img src={`${process.env.PUBLIC_URL}/YARBS.svg`} alt="YARBS" className="h-16 w-16" />
             <h1 className="text-4xl font-bold text-gray-900">
               YARBS — yet another reference based scaffolding tool
             </h1>
