@@ -1,5 +1,5 @@
 // src/components/ControlPanel.jsx - Enhanced with chromosome grouping for polyploids
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import {
   Settings,
   RotateCcw,
@@ -47,6 +47,17 @@ const ControlPanel = ({
   const [newGroupName, setNewGroupName] = useState('');
   const [expandedGroups, setExpandedGroups] = useState(new Set());
   const [showHelp, setShowHelp] = useState(false);
+  const [showStatistics, setShowStatistics] = useState(true);
+  const [showVisualizationSettings, setShowVisualizationSettings] = useState(true);
+  const [showModifications, setShowModifications] = useState(true);
+
+  // Auto-collapse statistics and visualization when entering scaffolding mode
+  useEffect(() => {
+    if (!explorationMode) {
+      setShowStatistics(false);
+      setShowVisualizationSettings(false);
+    }
+  }, [explorationMode]);
 
   // Get contigs for a reference with enhanced metadata - memoized to fix dependency warning
   const getContigsForReference = useCallback((data, refName) => {
@@ -64,10 +75,13 @@ const ControlPanel = ({
       })
       .forEach(a => {
         if (!contigMap.has(a.query)) {
+          // Get the actual contig length from the queries array
+          const contigInfo = data.queries.find(q => q.name === a.query);
           contigMap.set(a.query, {
             name: a.query,
             identity: a.identity,
             length: a.length,
+            contigLength: contigInfo ? contigInfo.length : 0, // Actual contig length
             alignmentCount: 0,
             flipSuggestionCount: 0, // Track how many alignments suggest flipping
             totalLength: 0,
@@ -107,10 +121,9 @@ const ControlPanel = ({
       const contigInfo = data.queries.find(q => q.name === contig.name);
       if (!contigInfo) return false; // Skip if contig not found
 
-      // Check minimum contig size filter (convert kb to bp, use ACTUAL contig length not alignment length)
+      // Check minimum contig size filter (use ACTUAL contig length not alignment length)
       if (settings.minContigSize && settings.minContigSize > 0) {
-        const minSizeInBp = settings.minContigSize * 1000;
-        if (contigInfo.length < minSizeInBp) return false;
+        if (contigInfo.length < settings.minContigSize) return false;
       }
 
       // Check unique alignment ratio only (alignment length filter only affects visualization)
@@ -299,25 +312,34 @@ const ControlPanel = ({
         Control Panel
       </h3>
 
-      {/* Statistics Section */}
+      {/* Statistics Section - Collapsible */}
       <div className="mb-6">
-        <h4 className="font-semibold text-gray-700 mb-2 flex items-center gap-2">
-          <Info size={16} />
-          Statistics
-        </h4>
-        <div className="bg-gray-50 rounded-lg p-3">
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <div>References: <strong>{statistics.totalReferences}</strong></div>
-            <div>Queries: <strong>{statistics.totalQueries}</strong></div>
-            <div>Total alignments: <strong>{statistics.totalAlignments}</strong></div>
-            <div>Unique: <strong className="text-green-600">{statistics.uniqueAlignments}</strong></div>
-            <div>Unique short: <strong className="text-cyan-600">{statistics.uniqueShortAlignments}</strong></div>
-            <div>Repetitive: <strong className="text-orange-600">{statistics.repetitiveAlignments}</strong></div>
-            <div>Modified queries: <strong className="text-purple-600">{statistics.modifiedQueries}</strong></div>
-            <div>Chr groups: <strong className="text-blue-600">{statistics.chromosomeGroups}</strong></div>
-            <div colSpan="2">Selected ref contigs: <strong>{statistics.contigsForSelectedRef}</strong></div>
+        <button
+          onClick={() => setShowStatistics(!showStatistics)}
+          className="w-full flex items-center justify-between p-2 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-md transition-colors mb-2"
+        >
+          <div className="flex items-center gap-2">
+            <Info size={16} className="text-gray-700" />
+            <h4 className="font-semibold text-gray-700">Statistics</h4>
           </div>
-        </div>
+          {showStatistics ? <ChevronUp size={16} className="text-gray-600" /> : <ChevronDown size={16} className="text-gray-600" />}
+        </button>
+        {showStatistics && (
+          <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div>References: <strong>{statistics.totalReferences}</strong></div>
+              <div>Queries: <strong>{statistics.totalQueries}</strong></div>
+              <div>Total alignments: <strong>{statistics.totalAlignments}</strong></div>
+              <div>Unique: <strong className="text-green-600">{statistics.uniqueAlignments}</strong></div>
+              <div>Unique short: <strong className="text-cyan-600">{statistics.uniqueShortAlignments}</strong></div>
+              <div>Repetitive: <strong className="text-orange-600">{statistics.repetitiveAlignments}</strong></div>
+              <div>Modified queries: <strong className="text-purple-600">{statistics.modifiedQueries}</strong></div>
+              <div>Modifications: <strong className="text-purple-600">{modifications.length}</strong></div>
+              <div>Chr groups: <strong className="text-blue-600">{statistics.chromosomeGroups}</strong></div>
+              <div colSpan="2">Selected ref contigs: <strong>{statistics.contigsForSelectedRef}</strong></div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Reference Selection */}
@@ -336,8 +358,8 @@ const ControlPanel = ({
             </option>
           ))}
         </select>
-        <div className="mt-1 flex items-center gap-2 text-xs">
-          {lockedChromosomes.has(selectedRef) ? (
+        {lockedChromosomes.has(selectedRef) && (
+          <div className="mt-1 flex items-center gap-2 text-xs">
             <div className="text-red-600 flex items-center gap-1">
               <Info size={12} />
               Locked
@@ -348,89 +370,512 @@ const ControlPanel = ({
                 (unlock)
               </button>
             </div>
-          ) : (
-            <div className="text-gray-600">
-              Unlocked - can be modified
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
-      {/* Chromosome Groups */}
-      {Object.keys(chromosomeGroups).length > 0 && (
-        <div className="mb-6">
-          <h4 className="font-semibold text-gray-700 mb-2 flex items-center gap-2">
-            <Users size={16} />
-            Chromosome Groups ({Object.keys(chromosomeGroups).length})
-          </h4>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
-            {Object.entries(chromosomeGroups).map(([groupName, group]) => {
-              const isExpanded = expandedGroups.has(groupName);
-              return (
-                <div key={groupName} className="bg-blue-50 border border-blue-200 rounded-md p-2">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2 flex-1">
-                      <button
-                        onClick={() => {
-                          const newExpanded = new Set(expandedGroups);
-                          if (isExpanded) {
-                            newExpanded.delete(groupName);
-                          } else {
-                            newExpanded.add(groupName);
-                          }
-                          setExpandedGroups(newExpanded);
-                        }}
-                        className="text-blue-600 hover:text-blue-800"
-                        title={isExpanded ? "Collapse" : "Expand"}
-                      >
-                        {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                      </button>
-                      <span className="font-medium text-blue-800">{groupName}</span>
-                      <span className="text-xs text-blue-600">({group.contigs.length})</span>
-                    </div>
-                    <button
-                      onClick={() => {
-                        if (window.confirm(`Delete chromosome group "${groupName}"?`)) {
-                          onDeleteChromosomeGroup(groupName);
-                        }
-                      }}
-                      className="text-red-500 hover:text-red-700 p-1"
-                      title="Delete group"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+      {/* Visualization Settings - Collapsible in scaffolding mode */}
+      <div className="mb-6">
+        {!explorationMode ? (
+          <>
+            <button
+              onClick={() => setShowVisualizationSettings(!showVisualizationSettings)}
+              className="w-full flex items-center justify-between p-2 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-md transition-colors mb-2"
+            >
+              <div className="flex items-center gap-2">
+                <Activity size={16} className="text-gray-700" />
+                <h4 className="font-semibold text-gray-700">Visualization Settings</h4>
+              </div>
+              {showVisualizationSettings ? <ChevronUp size={16} className="text-gray-600" /> : <ChevronDown size={16} className="text-gray-600" />}
+            </button>
+            {showVisualizationSettings && (
+              <div className="space-y-3">
+                {/* Show repetitive */}
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={settings.showRepetitive}
+                    onChange={(e) => onSettingsChange({
+                      ...settings,
+                      showRepetitive: e.target.checked
+                    })}
+                    className="rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+                  />
+                  <span className="text-sm">Show repetitive alignments</span>
+                </label>
+
+                {/* Show all alignments (including filtered ones) */}
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={settings.showAllAlignments}
+                    onChange={(e) => onSettingsChange({
+                      ...settings,
+                      showAllAlignments: e.target.checked
+                    })}
+                    className="rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+                  />
+                  <span className="text-sm">Show all unique alignments</span>
+                </label>
+                <p className="text-xs text-gray-500 ml-6 -mt-2">
+                  Include alignments filtered by unique_length threshold
+                </p>
+
+                {/* Contig Filtering Controls */}
+                <div className="border-t pt-3 mt-3 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Contig Filters
+                    </label>
+                    {statistics && statistics.filteredOutContigs > 0 && (
+                      <span className="text-xs text-orange-600 font-medium">
+                        {statistics.filteredOutContigs} contigs hidden
+                      </span>
+                    )}
                   </div>
 
-                  {isExpanded ? (
-                    <div className="mt-2 space-y-1">
-                      <div className="text-xs font-medium text-blue-700 mb-1">Contigs in this group:</div>
-                      {group.contigs.map((contigName, idx) => (
-                        <div key={idx} className="text-xs text-blue-700 pl-6">
-                          • {contigName}
-                        </div>
-                      ))}
+                  {/* Unique Alignment Ratio Filter */}
+                  <div className="bg-blue-50 p-2 rounded">
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-xs font-medium text-gray-700">
+                        Unique Alignment Ratio
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="1"
+                          value={(settings.minUniqueRatio * 100).toFixed(0)}
+                          onChange={(e) => {
+                            const value = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
+                            onSettingsChange({
+                              ...settings,
+                              minUniqueRatio: value / 100
+                            });
+                          }}
+                          className="w-14 px-1 py-0.5 border border-blue-300 rounded text-xs text-blue-700 font-mono text-right"
+                        />
+                        <span className="text-xs text-blue-700">%</span>
+                      </div>
                     </div>
-                  ) : (
-                    <div className="text-xs text-blue-700">
-                      {group.contigs.slice(0, 3).join(', ')}
-                      {group.contigs.length > 3 && ` +${group.contigs.length - 3} more`}
+                    <input
+                      type="range"
+                      min="0"
+                      max="0.2"
+                      step="0.01"
+                      value={Math.min(settings.minUniqueRatio, 0.2)}
+                      onChange={(e) => onSettingsChange({
+                        ...settings,
+                        minUniqueRatio: parseFloat(e.target.value)
+                      })}
+                      className="w-full"
+                    />
+                    <div className="flex justify-between text-xs text-gray-500 mt-0.5">
+                      <span>0%</span>
+                      <span>20%</span>
                     </div>
-                  )}
+                    <p className="text-xs text-gray-600 mt-1">
+                      Show contigs where ≥{(settings.minUniqueRatio * 100).toFixed(0)}% of contig length uniquely aligns to {selectedRef}
+                    </p>
+                  </div>
 
-                  {selectedContigs.length > 0 && (
-                    <button
-                      onClick={() => handleAddToExistingGroup(groupName)}
-                      className="text-xs text-blue-600 hover:underline mt-2"
-                    >
-                      Add {selectedContigs.length} selected to this group
-                    </button>
+                  {/* Alignment Length Filter */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Min Total Alignment Length
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min="0"
+                        max="100000"
+                        step="1000"
+                        value={settings.minAlignmentLength}
+                        onChange={(e) => onSettingsChange({
+                          ...settings,
+                          minAlignmentLength: parseInt(e.target.value)
+                        })}
+                        className="flex-1"
+                      />
+                      <input
+                        type="number"
+                        value={settings.minAlignmentLength}
+                        onChange={(e) => onSettingsChange({
+                          ...settings,
+                          minAlignmentLength: parseInt(e.target.value) || 0
+                        })}
+                        className="w-20 px-2 py-1 border border-gray-300 rounded text-xs"
+                        min="0"
+                      />
+                      <span className="text-xs text-gray-500">bp</span>
+                    </div>
+                  </div>
+
+                  {/* Minimum Contig Size Filter */}
+                  <div className="bg-orange-50 p-2 rounded">
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Minimum Contig Size
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        value={settings.minContigSize || ''}
+                        onChange={(e) => {
+                          const value = e.target.value === '' ? 0 : parseInt(e.target.value);
+                          onSettingsChange({
+                            ...settings,
+                            minContigSize: value >= 0 ? value : 0
+                          });
+                        }}
+                        placeholder="0"
+                        className="flex-1 px-2 py-1 border border-orange-300 rounded text-xs"
+                        min="0"
+                      />
+                      <span className="text-xs text-gray-600">bp</span>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-1">
+                      Hide contigs smaller than this size (0 = show all)
+                    </p>
+                  </div>
+
+                  <p className="text-xs text-gray-600 border-t pt-2">
+                    Showing <strong>{statistics?.contigsForSelectedRef || 0}</strong> of <strong>{statistics?.totalContigsForRef || 0}</strong> contigs
+                  </p>
+                </div>
+
+                {/* Line thickness */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Line thickness: {settings.lineThickness}x
+                  </label>
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    value={settings.lineThickness}
+                    onChange={(e) => onSettingsChange({
+                      ...settings,
+                      lineThickness: parseInt(e.target.value)
+                    })}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Label font size */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Contig label font size: {settings.labelFontSize}px
+                  </label>
+                  <input
+                    type="range"
+                    min="8"
+                    max="24"
+                    value={settings.labelFontSize}
+                    onChange={(e) => onSettingsChange({
+                      ...settings,
+                      labelFontSize: parseInt(e.target.value)
+                    })}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Color settings */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Forward
+                    </label>
+                    <input
+                      type="color"
+                      value={settings.colors.uniqueForward}
+                      onChange={(e) => onSettingsChange({
+                        ...settings,
+                        colors: { ...settings.colors, uniqueForward: e.target.value }
+                      })}
+                      className="w-full h-8 rounded border"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Reverse
+                    </label>
+                    <input
+                      type="color"
+                      value={settings.colors.uniqueReverse}
+                      onChange={(e) => onSettingsChange({
+                        ...settings,
+                        colors: { ...settings.colors, uniqueReverse: e.target.value }
+                      })}
+                      className="w-full h-8 rounded border"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Repetitive
+                    </label>
+                    <input
+                      type="color"
+                      value={settings.colors.repetitive}
+                      onChange={(e) => onSettingsChange({
+                        ...settings,
+                        colors: { ...settings.colors, repetitive: e.target.value }
+                      })}
+                      className="w-full h-8 rounded border"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          /* In exploration mode, show without collapsible wrapper */
+          <>
+            <h4 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+              <Activity size={16} />
+              Visualization Settings
+            </h4>
+            <div className="space-y-3">
+              {/* Same content as above but without the collapsible wrapper */}
+              {/* Show repetitive */}
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={settings.showRepetitive}
+                  onChange={(e) => onSettingsChange({
+                    ...settings,
+                    showRepetitive: e.target.checked
+                  })}
+                  className="rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+                />
+                <span className="text-sm">Show repetitive alignments</span>
+              </label>
+
+              {/* Show all alignments (including filtered ones) */}
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={settings.showAllAlignments}
+                  onChange={(e) => onSettingsChange({
+                    ...settings,
+                    showAllAlignments: e.target.checked
+                  })}
+                  className="rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+                />
+                <span className="text-sm">Show all unique alignments</span>
+              </label>
+              <p className="text-xs text-gray-500 ml-6 -mt-2">
+                Include alignments filtered by unique_length threshold
+              </p>
+
+              {/* Contig Filtering Controls */}
+              <div className="border-t pt-3 mt-3 space-y-3">
+                <div className="flex justify-between items-center">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Contig Filters
+                  </label>
+                  {statistics && statistics.filteredOutContigs > 0 && (
+                    <span className="text-xs text-orange-600 font-medium">
+                      {statistics.filteredOutContigs} contigs hidden
+                    </span>
                   )}
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+
+                {/* Unique Alignment Ratio Filter */}
+                <div className="bg-blue-50 p-2 rounded">
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-xs font-medium text-gray-700">
+                      Unique Alignment Ratio
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={(settings.minUniqueRatio * 100).toFixed(0)}
+                        onChange={(e) => {
+                          const value = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
+                          onSettingsChange({
+                            ...settings,
+                            minUniqueRatio: value / 100
+                          });
+                        }}
+                        className="w-14 px-1 py-0.5 border border-blue-300 rounded text-xs text-blue-700 font-mono text-right"
+                      />
+                      <span className="text-xs text-blue-700">%</span>
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="0.2"
+                    step="0.01"
+                    value={Math.min(settings.minUniqueRatio, 0.2)}
+                    onChange={(e) => onSettingsChange({
+                      ...settings,
+                      minUniqueRatio: parseFloat(e.target.value)
+                    })}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-xs text-gray-500 mt-0.5">
+                    <span>0%</span>
+                    <span>20%</span>
+                  </div>
+                  <p className="text-xs text-gray-600 mt-1">
+                    Show contigs where ≥{(settings.minUniqueRatio * 100).toFixed(0)}% of contig length uniquely aligns to {selectedRef}
+                  </p>
+                </div>
+
+                {/* Alignment Length Filter */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Min Total Alignment Length
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="range"
+                      min="0"
+                      max="100000"
+                      step="1000"
+                      value={settings.minAlignmentLength}
+                      onChange={(e) => onSettingsChange({
+                        ...settings,
+                        minAlignmentLength: parseInt(e.target.value)
+                      })}
+                      className="flex-1"
+                    />
+                    <input
+                      type="number"
+                      value={settings.minAlignmentLength}
+                      onChange={(e) => onSettingsChange({
+                        ...settings,
+                        minAlignmentLength: parseInt(e.target.value) || 0
+                      })}
+                      className="w-20 px-2 py-1 border border-gray-300 rounded text-xs"
+                      min="0"
+                    />
+                    <span className="text-xs text-gray-500">bp</span>
+                  </div>
+                </div>
+
+                {/* Minimum Contig Size Filter */}
+                <div className="bg-orange-50 p-2 rounded">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Minimum Contig Size
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={settings.minContigSize || ''}
+                      onChange={(e) => {
+                        const value = e.target.value === '' ? 0 : parseInt(e.target.value);
+                        onSettingsChange({
+                          ...settings,
+                          minContigSize: value >= 0 ? value : 0
+                        });
+                      }}
+                      placeholder="0"
+                      className="flex-1 px-2 py-1 border border-orange-300 rounded text-xs"
+                      min="0"
+                    />
+                    <span className="text-xs text-gray-600">bp</span>
+                  </div>
+                  <p className="text-xs text-gray-600 mt-1">
+                    Hide contigs smaller than this size (0 = show all)
+                  </p>
+                </div>
+
+                <p className="text-xs text-gray-600 border-t pt-2">
+                  Showing <strong>{statistics?.contigsForSelectedRef || 0}</strong> of <strong>{statistics?.totalContigsForRef || 0}</strong> contigs
+                </p>
+              </div>
+
+              {/* Line thickness */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Line thickness: {settings.lineThickness}x
+                </label>
+                <input
+                  type="range"
+                  min="1"
+                  max="10"
+                  value={settings.lineThickness}
+                  onChange={(e) => onSettingsChange({
+                    ...settings,
+                    lineThickness: parseInt(e.target.value)
+                  })}
+                  className="w-full"
+                />
+              </div>
+
+              {/* Label font size */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Contig label font size: {settings.labelFontSize}px
+                </label>
+                <input
+                  type="range"
+                  min="8"
+                  max="24"
+                  value={settings.labelFontSize}
+                  onChange={(e) => onSettingsChange({
+                    ...settings,
+                    labelFontSize: parseInt(e.target.value)
+                  })}
+                  className="w-full"
+                />
+              </div>
+
+              {/* Color settings */}
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Forward
+                  </label>
+                  <input
+                    type="color"
+                    value={settings.colors.uniqueForward}
+                    onChange={(e) => onSettingsChange({
+                      ...settings,
+                      colors: { ...settings.colors, uniqueForward: e.target.value }
+                    })}
+                    className="w-full h-8 rounded border"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Reverse
+                  </label>
+                  <input
+                    type="color"
+                    value={settings.colors.uniqueReverse}
+                    onChange={(e) => onSettingsChange({
+                      ...settings,
+                      colors: { ...settings.colors, uniqueReverse: e.target.value }
+                    })}
+                    className="w-full h-8 rounded border"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Repetitive
+                  </label>
+                  <input
+                    type="color"
+                    value={settings.colors.repetitive}
+                    onChange={(e) => onSettingsChange({
+                      ...settings,
+                      colors: { ...settings.colors, repetitive: e.target.value }
+                    })}
+                    className="w-full h-8 rounded border"
+                  />
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
 
       {/* Scaffolding Controls */}
       {!explorationMode && (
@@ -518,10 +963,10 @@ const ControlPanel = ({
                                   handleMoveContig(contig.name, 'up');
                                 }}
                                 disabled={index === 0}
-                                className={`p-0.5 hover:bg-gray-200 rounded transition-colors ${index === 0 ? 'opacity-30 cursor-not-allowed' : ''}`}
+                                className={`p-1 hover:bg-gray-200 rounded transition-colors ${index === 0 ? 'opacity-30 cursor-not-allowed' : ''}`}
                                 title="Move up"
                               >
-                                <ChevronUp size={12} />
+                                <ChevronUp size={18} />
                               </button>
                               <button
                                 onClick={(e) => {
@@ -529,10 +974,10 @@ const ControlPanel = ({
                                   handleMoveContig(contig.name, 'down');
                                 }}
                                 disabled={index === contigsForSelectedRef.length - 1}
-                                className={`p-0.5 hover:bg-gray-200 rounded transition-colors ${index === contigsForSelectedRef.length - 1 ? 'opacity-30 cursor-not-allowed' : ''}`}
+                                className={`p-1 hover:bg-gray-200 rounded transition-colors ${index === contigsForSelectedRef.length - 1 ? 'opacity-30 cursor-not-allowed' : ''}`}
                                 title="Move down"
                               >
-                                <ChevronDown size={12} />
+                                <ChevronDown size={18} />
                               </button>
                             </div>
                           )}
@@ -576,7 +1021,11 @@ const ControlPanel = ({
                           </div>
                         </div>
                         <div className="text-xs text-gray-500 mt-1">
-                          {contig.alignmentCount} alignments, {(contig.totalLength / 1000).toFixed(0)}kb total
+                          {contig.alignmentCount} alignments, {
+                            contig.contigLength >= 1000000
+                              ? `${(contig.contigLength / 1000000).toFixed(1)}Mb`
+                              : `${(contig.contigLength / 1000).toFixed(0)}kb`
+                          } contig
                           {contig.flipSuggestionCount > 0 && (
                             <span className="text-orange-600 ml-1">
                               ({Math.round(contig.flipSuggestionCount / contig.alignmentCount * 100)}% suggest flip)
@@ -692,281 +1141,125 @@ const ControlPanel = ({
         </div>
       )}
 
-      {/* Modifications Log */}
-      {modifications.length > 0 && (
-        <div className="mb-4">
-          <h4 className="font-semibold text-gray-700 mb-2 flex items-center justify-between">
-            <span>Modifications ({modifications.length})</span>
-            <button
-              onClick={() => modifications.forEach((_, i) => onRemoveModification(i))}
-              className="text-xs text-red-600 hover:underline"
-            >
-              Clear all
-            </button>
+      {/* Chromosome Groups */}
+      {Object.keys(chromosomeGroups).length > 0 && (
+        <div className="mb-6">
+          <h4 className="font-semibold text-gray-700 mb-2 flex items-center gap-2">
+            <Users size={16} />
+            Chromosome Groups ({Object.keys(chromosomeGroups).length})
           </h4>
-          <div className="max-h-40 overflow-y-auto bg-gray-50 border border-gray-200 rounded-md p-2">
-            {modifications.map((mod, index) => (
-              <div key={index} className="flex items-center justify-between py-1 border-b border-gray-200 last:border-b-0">
-                <div className="text-xs text-gray-600">
-                  <strong className={mod.type === 'invert' ? 'text-purple-600' : 'text-orange-600'}>
-                    {mod.type}
-                  </strong>: {mod.query}
-                  {mod.position && ` at ${mod.position}`}
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {Object.entries(chromosomeGroups).map(([groupName, group]) => {
+              const isExpanded = expandedGroups.has(groupName);
+              return (
+                <div key={groupName} className="bg-blue-50 border border-blue-200 rounded-md p-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2 flex-1">
+                      <button
+                        onClick={() => {
+                          const newExpanded = new Set(expandedGroups);
+                          if (isExpanded) {
+                            newExpanded.delete(groupName);
+                          } else {
+                            newExpanded.add(groupName);
+                          }
+                          setExpandedGroups(newExpanded);
+                        }}
+                        className="text-blue-600 hover:text-blue-800"
+                        title={isExpanded ? "Collapse" : "Expand"}
+                      >
+                        {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </button>
+                      <span className="font-medium text-blue-800">{groupName}</span>
+                      <span className="text-xs text-blue-600">({group.contigs.length})</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Delete chromosome group "${groupName}"?`)) {
+                          onDeleteChromosomeGroup(groupName);
+                        }
+                      }}
+                      className="text-red-500 hover:text-red-700 p-1"
+                      title="Delete group"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+
+                  {isExpanded ? (
+                    <div className="mt-2 space-y-1">
+                      <div className="text-xs font-medium text-blue-700 mb-1">Contigs in this group:</div>
+                      {group.contigs.map((contigName, idx) => (
+                        <div key={idx} className="text-xs text-blue-700 pl-6">
+                          • {contigName}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-blue-700">
+                      {group.contigs.slice(0, 3).join(', ')}
+                      {group.contigs.length > 3 && ` +${group.contigs.length - 3} more`}
+                    </div>
+                  )}
+
+                  {selectedContigs.length > 0 && (
+                    <button
+                      onClick={() => handleAddToExistingGroup(groupName)}
+                      className="text-xs text-blue-600 hover:underline mt-2"
+                    >
+                      Add {selectedContigs.length} selected to this group
+                    </button>
+                  )}
                 </div>
-                <button
-                  onClick={() => onRemoveModification(index)}
-                  className="text-red-500 hover:bg-red-100 rounded p-1"
-                >
-                  <Trash2 size={10} />
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* Visualization Settings */}
-      <div className="mb-6">
-        <h4 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
-          <Activity size={16} />
-          Visualization Settings
-        </h4>
-
-        <div className="space-y-3">
-          {/* Show repetitive */}
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={settings.showRepetitive}
-              onChange={(e) => onSettingsChange({
-                ...settings,
-                showRepetitive: e.target.checked
-              })}
-              className="rounded border-gray-300 text-blue-500 focus:ring-blue-500"
-            />
-            <span className="text-sm">Show repetitive alignments</span>
-          </label>
-
-          {/* Show all alignments (including filtered ones) */}
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={settings.showAllAlignments}
-              onChange={(e) => onSettingsChange({
-                ...settings,
-                showAllAlignments: e.target.checked
-              })}
-              className="rounded border-gray-300 text-blue-500 focus:ring-blue-500"
-            />
-            <span className="text-sm">Show all unique alignments</span>
-          </label>
-          <p className="text-xs text-gray-500 ml-6 -mt-2">
-            Include alignments filtered by unique_length threshold
-          </p>
-
-          {/* Contig Filtering Controls */}
-          <div className="border-t pt-3 mt-3 space-y-3">
-            <div className="flex justify-between items-center">
-              <label className="block text-sm font-medium text-gray-700">
-                Contig Filters
-              </label>
-              {statistics && statistics.filteredOutContigs > 0 && (
-                <span className="text-xs text-orange-600 font-medium">
-                  {statistics.filteredOutContigs} contigs hidden
-                </span>
-              )}
+      {/* Modifications Log - Collapsible */}
+      {modifications.length > 0 && (
+        <div className="mb-6">
+          <button
+            onClick={() => setShowModifications(!showModifications)}
+            className="w-full flex items-center justify-between p-2 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-md transition-colors mb-2"
+          >
+            <div className="flex items-center gap-2">
+              <RotateCcw size={16} className="text-purple-700" />
+              <h4 className="font-semibold text-purple-700">Modifications ({modifications.length})</h4>
             </div>
-
-            {/* Unique Alignment Ratio Filter */}
-            <div className="bg-blue-50 p-2 rounded">
-              <div className="flex justify-between items-center mb-1">
-                <label className="text-xs font-medium text-gray-700">
-                  Unique Alignment Ratio
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="1"
-                    value={(settings.minUniqueRatio * 100).toFixed(0)}
-                    onChange={(e) => {
-                      const value = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
-                      onSettingsChange({
-                        ...settings,
-                        minUniqueRatio: value / 100
-                      });
-                    }}
-                    className="w-14 px-1 py-0.5 border border-blue-300 rounded text-xs text-blue-700 font-mono text-right"
-                  />
-                  <span className="text-xs text-blue-700">%</span>
-                </div>
+            {showModifications ? <ChevronUp size={16} className="text-purple-600" /> : <ChevronDown size={16} className="text-purple-600" />}
+          </button>
+          {showModifications && (
+            <>
+              <div className="max-h-40 overflow-y-auto bg-gray-50 border border-gray-200 rounded-md p-2 mb-2">
+                {modifications.map((mod, index) => (
+                  <div key={index} className="flex items-center justify-between py-1 border-b border-gray-200 last:border-b-0">
+                    <div className="text-xs text-gray-600">
+                      <strong className={mod.type === 'invert' ? 'text-purple-600' : 'text-orange-600'}>
+                        {mod.type}
+                      </strong>: {mod.query}
+                      {mod.position && ` at ${mod.position}`}
+                    </div>
+                    <button
+                      onClick={() => onRemoveModification(index)}
+                      className="text-red-500 hover:bg-red-100 rounded p-1"
+                    >
+                      <Trash2 size={10} />
+                    </button>
+                  </div>
+                ))}
               </div>
-              <input
-                type="range"
-                min="0"
-                max="0.2"
-                step="0.01"
-                value={Math.min(settings.minUniqueRatio, 0.2)}
-                onChange={(e) => onSettingsChange({
-                  ...settings,
-                  minUniqueRatio: parseFloat(e.target.value)
-                })}
-                className="w-full"
-              />
-              <div className="flex justify-between text-xs text-gray-500 mt-0.5">
-                <span>0%</span>
-                <span>20%</span>
-              </div>
-              <p className="text-xs text-gray-600 mt-1">
-                Show contigs where ≥{(settings.minUniqueRatio * 100).toFixed(0)}% of contig length uniquely aligns to {selectedRef}
-              </p>
-            </div>
-
-            {/* Alignment Length Filter */}
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Min Total Alignment Length
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="range"
-                  min="0"
-                  max="100000"
-                  step="1000"
-                  value={settings.minAlignmentLength}
-                  onChange={(e) => onSettingsChange({
-                    ...settings,
-                    minAlignmentLength: parseInt(e.target.value)
-                  })}
-                  className="flex-1"
-                />
-                <input
-                  type="number"
-                  value={settings.minAlignmentLength}
-                  onChange={(e) => onSettingsChange({
-                    ...settings,
-                    minAlignmentLength: parseInt(e.target.value) || 0
-                  })}
-                  className="w-20 px-2 py-1 border border-gray-300 rounded text-xs"
-                  min="0"
-                />
-                <span className="text-xs text-gray-500">bp</span>
-              </div>
-            </div>
-
-            {/* Minimum Contig Size Filter */}
-            <div className="bg-orange-50 p-2 rounded">
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Minimum Contig Size
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  value={settings.minContigSize || 0}
-                  onChange={(e) => onSettingsChange({
-                    ...settings,
-                    minContigSize: parseInt(e.target.value) || 0
-                  })}
-                  placeholder="0"
-                  className="flex-1 px-2 py-1 border border-orange-300 rounded text-xs"
-                  min="0"
-                />
-                <span className="text-xs text-gray-600">kb</span>
-              </div>
-              <p className="text-xs text-gray-600 mt-1">
-                Hide contigs smaller than this size (0 = show all)
-              </p>
-            </div>
-
-            <p className="text-xs text-gray-600 border-t pt-2">
-              Showing <strong>{statistics?.contigsForSelectedRef || 0}</strong> of <strong>{statistics?.totalContigsForRef || 0}</strong> contigs
-            </p>
-          </div>
-
-          {/* Line thickness */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Line thickness: {settings.lineThickness}x
-            </label>
-            <input
-              type="range"
-              min="1"
-              max="10"
-              value={settings.lineThickness}
-              onChange={(e) => onSettingsChange({
-                ...settings,
-                lineThickness: parseInt(e.target.value)
-              })}
-              className="w-full"
-            />
-          </div>
-
-          {/* Label font size */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Contig label font size: {settings.labelFontSize}px
-            </label>
-            <input
-              type="range"
-              min="8"
-              max="24"
-              value={settings.labelFontSize}
-              onChange={(e) => onSettingsChange({
-                ...settings,
-                labelFontSize: parseInt(e.target.value)
-              })}
-              className="w-full"
-            />
-          </div>
-
-          {/* Color settings */}
-          <div className="grid grid-cols-3 gap-2">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
-                Forward
-              </label>
-              <input
-                type="color"
-                value={settings.colors.uniqueForward}
-                onChange={(e) => onSettingsChange({
-                  ...settings,
-                  colors: { ...settings.colors, uniqueForward: e.target.value }
-                })}
-                className="w-full h-8 rounded border"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
-                Reverse
-              </label>
-              <input
-                type="color"
-                value={settings.colors.uniqueReverse}
-                onChange={(e) => onSettingsChange({
-                  ...settings,
-                  colors: { ...settings.colors, uniqueReverse: e.target.value }
-                })}
-                className="w-full h-8 rounded border"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
-                Repetitive
-              </label>
-              <input
-                type="color"
-                value={settings.colors.repetitive}
-                onChange={(e) => onSettingsChange({
-                  ...settings,
-                  colors: { ...settings.colors, repetitive: e.target.value }
-                })}
-                className="w-full h-8 rounded border"
-              />
-            </div>
-          </div>
+              <button
+                onClick={() => modifications.forEach((_, i) => onRemoveModification(i))}
+                className="w-full text-xs text-red-600 hover:bg-red-50 p-2 rounded border border-red-200"
+              >
+                Clear all modifications
+              </button>
+            </>
+          )}
         </div>
-      </div>
+      )}
 
       {/* Help & Tips Section */}
       <div className="mb-6">

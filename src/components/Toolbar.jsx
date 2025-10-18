@@ -27,9 +27,8 @@ const Toolbar = ({
   onResetAll,
   onUndo,
   canUndo,
-  onExportModifications,
-  onExportAllWorkspaces,
-  onExportScaffoldingPlan,
+  onExportSession,
+  onExportForScaffolding,
   loading,
   hasData,
   hasModifications
@@ -70,47 +69,46 @@ const Toolbar = ({
     <div className="p-4 border-b bg-gray-50 border-gray-200">
       <div className="flex items-center justify-between flex-wrap gap-4">
         {/* Left section - File operations */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleUploadClick}
-            disabled={loading}
-            className={`
-              flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors
-              ${loading 
-                ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                : 'bg-blue-500 hover:bg-blue-600 text-white shadow-sm'
-              }
-            `}
-            title="Upload .coords and .coords.idx files"
-          >
-            {loading ? (
-              <>
-                <Loader2 size={16} className="animate-spin" />
-                Loading...
-              </>
-            ) : (
-              <>
-                <Upload size={16} />
-                Load Files
-              </>
-            )}
-          </button>
-          
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept=".coords,.idx"
-            onChange={handleFileInputChange}
-            className="hidden"
-          />
-          
-          {hasData && (
-            <div className="text-sm text-gray-600 px-2 bg-green-50 border border-green-200 rounded">
-              Files loaded successfully
-            </div>
-          )}
-        </div>
+        {!hasData && (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleUploadClick}
+              disabled={loading}
+              className={`
+                flex items-center gap-3 px-8 py-4 rounded-md font-medium transition-colors text-lg
+                ${loading
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'text-white shadow-sm'
+                }
+              `}
+              style={!loading ? { backgroundColor: '#9B544B' } : {}}
+              onMouseEnter={(e) => !loading && (e.target.style.backgroundColor = '#8A4A42')}
+              onMouseLeave={(e) => !loading && (e.target.style.backgroundColor = '#9B544B')}
+              title="Upload .coords and .coords.idx files"
+            >
+              {loading ? (
+                <>
+                  <Loader2 size={24} className="animate-spin" />
+                  Loading...
+                </>
+              ) : (
+                <>
+                  <Upload size={24} />
+                  Load Files
+                </>
+              )}
+            </button>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".coords,.idx,.json"
+              onChange={handleFileInputChange}
+              className="hidden"
+            />
+          </div>
+        )}
 
         {/* Center section - View controls */}
         {hasData && (
@@ -202,34 +200,25 @@ const Toolbar = ({
             </>
           )}
 
-          {/* Export modifications */}
+          {/* Export buttons */}
           {!explorationMode && hasModifications && (
             <>
               <button
-                onClick={onExportModifications}
+                onClick={onExportSession}
+                className="flex items-center gap-2 px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md font-medium transition-colors shadow-sm"
+                title="Save your work - Export complete session to reload later (includes all workspaces and settings)"
+              >
+                <Download size={16} />
+                <span className="hidden sm:inline">Save Session</span>
+              </button>
+
+              <button
+                onClick={onExportForScaffolding}
                 className="flex items-center gap-2 px-3 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-md font-medium transition-colors shadow-sm"
-                title="Export current workspace modifications as JSON file"
+                title="Final export - Creates both scaffolding JSON and changes CSV for publications"
               >
                 <Download size={16} />
-                <span className="hidden sm:inline">Export Current</span>
-              </button>
-
-              <button
-                onClick={onExportAllWorkspaces}
-                className="flex items-center gap-2 px-3 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-md font-medium transition-colors shadow-sm"
-                title="Export ALL workspaces (all references) as JSON file for genome_scaffolder.py"
-              >
-                <Download size={16} />
-                <span className="hidden sm:inline">Export All</span>
-              </button>
-
-              <button
-                onClick={onExportScaffoldingPlan}
-                className="flex items-center gap-2 px-3 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md font-medium transition-colors shadow-sm"
-                title="Export scaffolding plan as TSV (includes unincorporated scaffolds ordered by length)"
-              >
-                <Download size={16} />
-                <span className="hidden sm:inline">Export Plan</span>
+                <span className="hidden sm:inline">Export for Scaffolding</span>
               </button>
             </>
           )}
@@ -260,11 +249,6 @@ const Toolbar = ({
                   Use mouse wheel to zoom, drag to pan
                 </span>
               )}
-              {!explorationMode && (
-                <span className="text-yellow-600 text-xs">
-                  <strong>Scaffolding mode:</strong> Drag contig names to reorder, use control panel for modifications
-                </span>
-              )}
               {hasModifications && (
                 <span className="text-purple-600 font-medium">
                   {hasModifications} modifications active
@@ -277,16 +261,17 @@ const Toolbar = ({
 
       {/* Help hints for new users */}
       {!hasData && !loading && (
-        <div className="mt-3 pt-3 border-t border-gray-200">
-          <div className="text-sm text-gray-600">
-            <div className="flex items-center gap-2 mb-2">
-              <Info size={14} className="text-blue-500" />
-              <span className="font-medium">Getting Started:</span>
+        <div className="mt-6 pt-6 border-t border-gray-200">
+          <div className="text-2xl text-gray-600">
+            <div className="flex items-center gap-3 mb-4">
+              <Info size={36} className="text-blue-500" />
+              <span className="font-medium text-3xl">Getting Started:</span>
             </div>
-            <div className="ml-6 space-y-1 text-xs">
-              <p>1. Generate coordinate files using: <code className="bg-gray-100 px-1 rounded">python minimap_prep.py -r reference.fasta -q query.fasta -o output</code></p>
-              <p>2. Click "Load Files" and select both <code className="bg-gray-100 px-1 rounded">.coords</code> and <code className="bg-gray-100 px-1 rounded">.coords.idx</code> files</p>
-              <p>3. Use Exploration mode for viewing, Scaffolding mode for modifications</p>
+            <div className="ml-12 space-y-3 text-xl">
+              <p>1. Generate coordinate files using: <code className="bg-gray-100 px-2 py-1 rounded text-lg">python minimap_prep.py -r reference.fasta -q query.fasta -o output</code></p>
+              <p>2. Click "Load Files" and select both <code className="bg-gray-100 px-2 py-1 rounded text-lg">.coords</code> and <code className="bg-gray-100 px-2 py-1 rounded text-lg">.coords.idx</code> files</p>
+              <p>3. <strong>Optional:</strong> Include a previously exported <code className="bg-gray-100 px-2 py-1 rounded text-lg">.json</code> session file to restore your work</p>
+              <p>4. Use Exploration mode for viewing, Scaffolding mode for modifications</p>
             </div>
           </div>
         </div>

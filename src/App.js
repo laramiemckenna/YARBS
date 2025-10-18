@@ -4,8 +4,10 @@ import DotPlot from './components/DotPlot';
 import ControlPanel from './components/ControlPanel';
 import Toolbar from './components/Toolbar';
 import SaveDialog from './components/SaveDialog';
+import N50Modal from './components/N50Modal';
 import { parseCoordinateFiles } from './utils/fileParser';
 import { applyModificationsToVisualization } from './utils/visualizationUpdater';
+import { calculateN50 } from './utils/n50Calculator';
 import './App.css';
 
 function App() {
@@ -78,8 +80,8 @@ function App() {
     showAllAlignments: true, // Show all unique alignments by default (includes unique_short)
     minAlignmentLength: 0,
     minUniqueRatio: 0.05, // Minimum ratio of unique alignment to total contig length (5% default)
-    minContigSize: 0, // Minimum contig size to display (kb)
-    lineThickness: 5, // Default 5x (range 1-10)
+    minContigSize: 30000, // Minimum contig size to display (30,000 bp default)
+    lineThickness: 3, // Default 3x (range 1-10)
     labelFontSize: 14, // Default 14px (range 8-24)
     colors: {
       uniqueForward: '#0081b0',
@@ -98,8 +100,8 @@ function App() {
 
   // File upload handler
   const handleFileUpload = async (files) => {
-    if (files.length !== 2) {
-      setError('Please select both .coords and .coords.idx files');
+    if (files.length < 2 || files.length > 3) {
+      setError('Please select .coords and .coords.idx files (and optionally a session .json file)');
       return;
     }
 
@@ -107,20 +109,54 @@ function App() {
     setError(null);
 
     try {
-      const coordsFile = Array.from(files).find(f => f.name.endsWith('.coords'));
-      const idxFile = Array.from(files).find(f => f.name.endsWith('.coords.idx'));
-      
+      const fileArray = Array.from(files);
+      const coordsFile = fileArray.find(f => f.name.endsWith('.coords') && !f.name.endsWith('.coords.idx'));
+      const idxFile = fileArray.find(f => f.name.endsWith('.coords.idx'));
+      const sessionFile = fileArray.find(f => f.name.endsWith('.json'));
+
       if (!coordsFile || !idxFile) {
-        throw new Error('Please select .coords and .coords.idx files');
+        throw new Error('Please select both .coords and .coords.idx files');
       }
 
       console.log('Loading files:', coordsFile.name, idxFile.name);
-      
+      if (sessionFile) {
+        console.log('Session file detected:', sessionFile.name);
+      }
+
       const coordsText = await coordsFile.text();
       const idxText = await idxFile.text();
-      
+
       const parsedData = parseCoordinateFiles(coordsText, idxText);
-      
+
+      // Calculate N50 from query contigs
+      const n50Statistics = calculateN50(parsedData.queries);
+      console.log('N50 Statistics:', n50Statistics);
+
+      // Store pending data and show N50 modal (only if no session file)
+      if (!sessionFile) {
+        setPendingDataLoad({
+          parsedData,
+          sessionFile: null
+        });
+        setN50Stats(n50Statistics);
+        setShowN50Modal(true);
+        setLoading(false);
+        return; // Wait for user to proceed
+      }
+
+      // If session file provided, skip N50 modal and proceed directly
+      await finishDataLoad(parsedData, sessionFile);
+    } catch (err) {
+      console.error('Error loading files:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Separate function to finish loading data after N50 modal
+  const finishDataLoad = async (parsedData, sessionFile) => {
+    try {
       // Store both original and working copies
       setOriginalData(JSON.parse(JSON.stringify(parsedData))); // Deep copy
       setData(parsedData);
@@ -159,23 +195,108 @@ function App() {
         };
       });
 
-      setReferenceWorkspaces(initialWorkspaces);
+      // If session file provided, restore session state
+      if (sessionFile) {
+        try {
+          const sessionText = await sessionFile.text();
+          const sessionData = JSON.parse(sessionText);
 
-      // Set default reference
-      if (parsedData.references.length > 0) {
-        setSelectedRef(parsedData.references[0].name);
+          console.log('Restoring session from:', sessionFile.name);
+
+          // Validate session format
+          if (!sessionData.workspaces) {
+            console.warn('Session file missing workspaces data. Loading default state.');
+            setReferenceWorkspaces(initialWorkspaces);
+          } else {
+            // Restore workspaces with proper Set conversion for uninformativeContigs
+            const restoredWorkspaces = {};
+            Object.entries(sessionData.workspaces).forEach(([refName, workspace]) => {
+              restoredWorkspaces[refName] = {
+                ...workspace,
+                uninformativeContigs: new Set(workspace.uninformativeContigs || []),
+                selectedContigs: workspace.selectedContigs || [],
+                saved: true,
+                lastModified: workspace.lastModified || null,
+                history: workspace.history || []
+              };
+            });
+            setReferenceWorkspaces(restoredWorkspaces);
+            console.log('Restored workspaces for', Object.keys(restoredWorkspaces).length, 'references');
+          }
+
+          // Restore visualization settings if available
+          if (sessionData.visualizationSettings) {
+            const vizSettings = sessionData.visualizationSettings;
+
+            if (vizSettings.settings) {
+              setSettings(vizSettings.settings);
+            }
+            if (vizSettings.viewMode) {
+              setViewMode(vizSettings.viewMode);
+            }
+            if (vizSettings.selectedRef && parsedData.references.find(r => r.name === vizSettings.selectedRef)) {
+              setSelectedRef(vizSettings.selectedRef);
+            } else if (parsedData.references.length > 0) {
+              setSelectedRef(parsedData.references[0].name);
+            }
+            if (vizSettings.referenceFlipped !== undefined) {
+              setReferenceFlipped(vizSettings.referenceFlipped);
+            }
+            if (vizSettings.zoom !== undefined) {
+              setZoom(vizSettings.zoom);
+            }
+            if (vizSettings.pan) {
+              setPan(vizSettings.pan);
+            }
+
+            console.log('Restored visualization settings');
+          } else {
+            // No viz settings, just set default reference
+            if (parsedData.references.length > 0) {
+              setSelectedRef(parsedData.references[0].name);
+            }
+          }
+        } catch (sessionErr) {
+          console.error('Error loading session file:', sessionErr);
+          console.warn('Using default workspace state instead');
+          setReferenceWorkspaces(initialWorkspaces);
+          if (parsedData.references.length > 0) {
+            setSelectedRef(parsedData.references[0].name);
+          }
+        }
+      } else {
+        // No session file, use default initialization
+        setReferenceWorkspaces(initialWorkspaces);
+        if (parsedData.references.length > 0) {
+          setSelectedRef(parsedData.references[0].name);
+        }
       }
 
       // Reset legacy state
       setLockedChromosomes(new Set());
-      
+
       console.log('Successfully loaded data:', parsedData);
     } catch (err) {
-      console.error('Error loading files:', err);
+      console.error('Error loading session:', err);
       setError(err.message);
-    } finally {
-      setLoading(false);
     }
+  };
+
+  // Handle N50 modal proceed
+  const handleN50Proceed = async () => {
+    setShowN50Modal(false);
+    if (pendingDataLoad) {
+      await finishDataLoad(pendingDataLoad.parsedData, pendingDataLoad.sessionFile);
+      setPendingDataLoad(null);
+    }
+  };
+
+  // Handle N50 modal cancel
+  const handleN50Cancel = () => {
+    setShowN50Modal(false);
+    setPendingDataLoad(null);
+    setN50Stats(null);
+    setLoading(false);
   };
 
   // Apply modifications to visualization in real-time
@@ -287,6 +408,11 @@ function App() {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [pendingRefChange, setPendingRefChange] = useState(null);
 
+  // N50 modal state
+  const [showN50Modal, setShowN50Modal] = useState(false);
+  const [n50Stats, setN50Stats] = useState(null);
+  const [pendingDataLoad, setPendingDataLoad] = useState(null);
+
   // Save the current workspace (mark as saved)
   const saveWorkspace = () => {
     if (!selectedRef) return;
@@ -383,6 +509,23 @@ function App() {
     setPan({ x: 0, y: 0 });
   };
 
+  // Reset to load page
+  const resetToLoadPage = () => {
+    const confirmReset = window.confirm(
+      'This will clear all data and return to the load page. Any unsaved work will be lost. Are you sure?'
+    );
+    if (confirmReset) {
+      setData(null);
+      setOriginalData(null);
+      setSelectedRef('');
+      setReferenceWorkspaces({});
+      setLockedChromosomes(new Set());
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
+      setError(null);
+    }
+  };
+
   // Zoom to a specific contig
   const zoomToContig = (contigName) => {
     if (!data || !selectedRef) return;
@@ -477,39 +620,54 @@ function App() {
     });
   };
 
-  const exportModifications = () => {
-    // Export current workspace only (reference-specific)
-    const changeFile = {
-      modifications,
-      selectedContigs,
-      chromosomeGroups,
-      contigOrder,
-      uninformativeContigs: Array.from(uninformativeContigs),
+  const exportSession = () => {
+    // Export complete session including all workspaces and visualization settings
+    const sessionFile = {
+      version: "1.0",
       timestamp: new Date().toISOString(),
-      settings: {
+      note: "YARBS session export - contains all workspaces and settings. Use this file to reload your work later.",
+
+      // All workspace data (per-reference state)
+      workspaces: referenceWorkspaces,
+
+      // Visualization settings to restore the view
+      visualizationSettings: {
         viewMode,
-        selectedRef
-      },
-      // Note: lockedChromosomes removed - locking feature deprecated
-      // Chromosome groups now contain 'createdOn' field to track reference
+        selectedRef,
+        referenceFlipped,
+        zoom,
+        pan,
+        settings: {
+          showRepetitive: settings.showRepetitive,
+          showAllAlignments: settings.showAllAlignments,
+          minAlignmentLength: settings.minAlignmentLength,
+          minUniqueRatio: settings.minUniqueRatio,
+          minContigSize: settings.minContigSize,
+          lineThickness: settings.lineThickness,
+          labelFontSize: settings.labelFontSize,
+          colors: settings.colors
+        }
+      }
     };
 
-    const blob = new Blob([JSON.stringify(changeFile, null, 2)], {
+    const blob = new Blob([JSON.stringify(sessionFile, null, 2)], {
       type: 'application/json'
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `genome_modifications_${selectedRef}_${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `yarbs_session_${new Date().toISOString().split('T')[0]}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+
+    console.log(`Exported session with ${Object.keys(referenceWorkspaces).length} reference workspaces`);
   };
 
-  const exportAllWorkspaces = () => {
-    // Export ALL workspaces (all references combined) for scaffolding
-    // This merges all chromosome groups from all references into one file
+  const exportForScaffolding = () => {
+    // Export in the format expected by genome_scaffolder.py
+    // This merges all chromosome groups and modifications from all references
     const allChromosomeGroups = {};
     const allModifications = [];
 
@@ -526,125 +684,142 @@ function App() {
       }
     });
 
-    const combinedFile = {
+    const timestamp = new Date().toISOString().split('T')[0];
+
+    // 1. Export JSON file for scaffolding
+    const scaffoldingFile = {
       modifications: allModifications,
       chromosomeGroups: allChromosomeGroups,
       timestamp: new Date().toISOString(),
-      note: "Combined export from all reference workspaces - ready for genome_scaffolder.py"
+      note: "Export for genome_scaffolder.py - contains chromosome groups and modifications for final scaffolding"
     };
 
-    const blob = new Blob([JSON.stringify(combinedFile, null, 2)], {
+    const jsonBlob = new Blob([JSON.stringify(scaffoldingFile, null, 2)], {
       type: 'application/json'
     });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `genome_scaffolding_all_${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const jsonUrl = URL.createObjectURL(jsonBlob);
+    const jsonLink = document.createElement('a');
+    jsonLink.href = jsonUrl;
+    jsonLink.download = `scaffolding_${timestamp}.json`;
+    document.body.appendChild(jsonLink);
+    jsonLink.click();
+    document.body.removeChild(jsonLink);
+    URL.revokeObjectURL(jsonUrl);
 
-    console.log(`Exported ${Object.keys(allChromosomeGroups).length} chromosome groups from ${Object.keys(referenceWorkspaces).length} references`);
+    console.log(`Exported ${Object.keys(allChromosomeGroups).length} chromosome groups from ${Object.keys(referenceWorkspaces).length} references for scaffolding`);
+
+    // 2. Also export CSV file for supplementary tables
+    exportChangesCSV();
   };
 
-  const exportScaffoldingPlan = () => {
-    if (!data) return;
+  const exportChangesCSV = () => {
+    // Export a CSV file tracking all changes made during scaffolding
+    // Perfect for supplementary tables in publications
 
-    // Build scaffolding plan
-    const scaffoldingPlan = [];
-    const processedContigs = new Set();
+    const allChanges = [];
 
-    // 1. Add all contigs that are in chromosome groups (in their custom order)
-    Object.entries(chromosomeGroups).forEach(([groupName, contigNames]) => {
-      // Sort contigs in this group by their custom order
-      const orderedContigs = [...contigNames].sort((a, b) => {
-        const orderA = contigOrder[a] !== undefined ? contigOrder[a] : 999999;
-        const orderB = contigOrder[b] !== undefined ? contigOrder[b] : 999999;
-        return orderA - orderB;
-      });
+    // Collect all modifications from all workspaces
+    Object.entries(referenceWorkspaces).forEach(([refName, workspace]) => {
+      if (workspace.modifications && workspace.modifications.length > 0) {
+        workspace.modifications.forEach((mod, index) => {
+          // Get contig info if available
+          const contigInfo = originalData?.queries.find(q => q.name === mod.query);
 
-      orderedContigs.forEach(contigName => {
-        const contig = data.queries.find(q => q.name === contigName);
-        if (contig) {
-          // Check if this contig needs to be flipped based on modifications
-          const flipMod = modifications.find(m => m.type === 'invert' && m.contigName === contigName);
-          const orientation = flipMod ? '-' : '+';
-
-          scaffoldingPlan.push({
-            scaffold_name: groupName,
-            contig_name: contigName,
-            contig_length: contig.length,
-            orientation: orientation,
-            group: groupName
+          allChanges.push({
+            changeNumber: allChanges.length + 1,
+            reference: refName,
+            modificationType: mod.type,
+            contigName: mod.query,
+            contigLength: contigInfo ? contigInfo.length : 'N/A',
+            position: mod.position || 'N/A',
+            timestamp: mod.timestamp ? new Date(mod.timestamp).toISOString() : 'N/A',
+            notes: mod.notes || ''
           });
-          processedContigs.add(contigName);
-        }
+        });
+      }
+
+      // Also track chromosome group assignments
+      Object.entries(workspace.chromosomeGroups || {}).forEach(([groupName, groupData]) => {
+        groupData.contigs.forEach(contigName => {
+          const contigInfo = originalData?.queries.find(q => q.name === contigName);
+
+          allChanges.push({
+            changeNumber: allChanges.length + 1,
+            reference: refName,
+            modificationType: 'group_assignment',
+            contigName: contigName,
+            contigLength: contigInfo ? contigInfo.length : 'N/A',
+            position: 'N/A',
+            timestamp: groupData.lastModified ? new Date(groupData.lastModified).toISOString() : 'N/A',
+            notes: `Assigned to chromosome group: ${groupName}`
+          });
+        });
       });
     });
 
-    // 2. Add unincorporated contigs (not in groups), sorted by length
-    // Note: Uninformative contigs are included here - they're just hidden from UI, not excluded from export
-    const unincorporatedContigs = data.queries
-      .filter(q => !processedContigs.has(q.name))
-      .sort((a, b) => b.length - a.length); // Sort by length descending
+    if (allChanges.length === 0) {
+      alert('No changes to export. Make some modifications first!');
+      return;
+    }
 
-    unincorporatedContigs.forEach((contig, index) => {
-      const scaffoldName = `unincorporated_scaffold_${index + 1}`;
-      const flipMod = modifications.find(m => m.type === 'invert' && m.contigName === contig.name);
-      const orientation = flipMod ? '-' : '+';
+    // Sort by change number
+    allChanges.sort((a, b) => a.changeNumber - b.changeNumber);
 
-      scaffoldingPlan.push({
-        scaffold_name: scaffoldName,
-        contig_name: contig.name,
-        contig_length: contig.length,
-        orientation: orientation,
-        group: 'unincorporated'
-      });
-      processedContigs.add(contig.name);
+    // Generate CSV content
+    const headers = ['Change #', 'Reference', 'Modification Type', 'Contig Name', 'Contig Length (bp)', 'Position', 'Timestamp', 'Notes'];
+    const csvRows = [headers.join(',')];
+
+    allChanges.forEach(change => {
+      const row = [
+        change.changeNumber,
+        change.reference,
+        change.modificationType,
+        change.contigName,
+        change.contigLength,
+        change.position,
+        change.timestamp,
+        `"${change.notes}"` // Quote notes field in case it contains commas
+      ];
+      csvRows.push(row.join(','));
     });
 
-    // Export as TSV (tab-separated values)
-    const tsvContent = [
-      'scaffold_name\tcontig_name\tcontig_length\torientation\tgroup',
-      ...scaffoldingPlan.map(row =>
-        `${row.scaffold_name}\t${row.contig_name}\t${row.contig_length}\t${row.orientation}\t${row.group}`
-      )
-    ].join('\n');
+    // Add metadata footer
+    csvRows.push('');
+    csvRows.push(`"Generated by YARBS on ${new Date().toISOString()}"`);
+    csvRows.push(`"Total changes: ${allChanges.length}"`);
+    csvRows.push(`"References processed: ${Object.keys(referenceWorkspaces).length}"`);
 
-    const blob = new Blob([tsvContent], { type: 'text/tab-separated-values' });
+    const csvContent = csvRows.join('\n');
+
+    // Download the CSV
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `scaffolding_plan_${new Date().toISOString().split('T')[0]}.tsv`;
+    a.download = `scaffolding_changes_${new Date().toISOString().split('T')[0]}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    // Also show summary
-    const uninformativeCount = Array.from(uninformativeContigs).filter(name =>
-      unincorporatedContigs.some(c => c.name === name)
-    ).length;
-
-    console.log(`Scaffolding plan exported:
-      - ${Object.keys(chromosomeGroups).length} chromosome groups
-      - ${unincorporatedContigs.length} unincorporated scaffolds (includes ${uninformativeCount} marked as uninformative)
-      - ${processedContigs.size} total contigs in output`);
+    console.log(`Exported ${allChanges.length} changes to CSV for supplementary tables`);
   };
+
 
   return (
     <div className="h-screen bg-gray-100 flex flex-col">
       {/* Header */}
       <header className="bg-white shadow-sm border-b p-4">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              Interactive Genome Scaffolding
+          <div
+            className={`flex items-center gap-2 ${data ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}`}
+            onClick={data ? resetToLoadPage : undefined}
+            title={data ? 'Click to return to load page' : ''}
+          >
+            <img src="/YARBS.svg" alt="YARBS" className="h-16 w-16" />
+            <h1 className="text-4xl font-bold text-gray-900">
+              YARBS — yet another reference based scaffolding tool
             </h1>
-            <p className="text-sm text-gray-600 mt-1">
-              Reference-based genome scaffolding with interactive dot plot visualization
-            </p>
           </div>
           
           {data && (
@@ -693,9 +868,8 @@ function App() {
               onResetAll={resetAllModifications}
               onUndo={handleUndo}
               canUndo={history.length > 0}
-              onExportModifications={exportModifications}
-              onExportAllWorkspaces={exportAllWorkspaces}
-              onExportScaffoldingPlan={exportScaffoldingPlan}
+              onExportSession={exportSession}
+              onExportForScaffolding={exportForScaffolding}
               loading={loading}
               hasData={!!data}
               hasModifications={modifications.length > 0}
@@ -765,6 +939,14 @@ function App() {
         onSave={() => confirmReferenceChange('save')}
         onDiscard={() => confirmReferenceChange('discard')}
         onCancel={cancelReferenceChange}
+      />
+
+      {/* N50 Modal */}
+      <N50Modal
+        isOpen={showN50Modal}
+        n50Stats={n50Stats}
+        onProceed={handleN50Proceed}
+        onCancel={handleN50Cancel}
       />
     </div>
   );

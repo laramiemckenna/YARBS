@@ -36,8 +36,23 @@ const DotPlot = ({
     };
 
     updateCanvasSize();
+
+    // Use ResizeObserver for better performance
+    const resizeObserver = new ResizeObserver(() => {
+      updateCanvasSize();
+    });
+
+    if (canvasRef.current) {
+      resizeObserver.observe(canvasRef.current);
+    }
+
+    // Fallback to window resize event
     window.addEventListener('resize', updateCanvasSize);
-    return () => window.removeEventListener('resize', updateCanvasSize);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateCanvasSize);
+    };
   }, []);
 
   // Calculate visual modifications for this render - memoized for performance
@@ -73,20 +88,27 @@ const DotPlot = ({
       let filteredAlignments = getFilteredAlignments(data, selectedRef, settings);
 
       // Further filter alignments to only show contigs that pass the filters
-      // This matches the same filtering logic used in ControlPanel
-      const effectiveMinLength = settings.minAlignmentLength || 50000;
-
+      // This matches the EXACT same filtering logic used in ControlPanel.getContigsForReference
       // Build a set of contigs that should be hidden
       const hiddenContigs = new Set();
 
       // For each contig, check if it should be hidden based on filters
       const contigAlignments = new Map();
-      filteredAlignments.forEach(alignment => {
-        if (!contigAlignments.has(alignment.query)) {
-          contigAlignments.set(alignment.query, []);
-        }
-        contigAlignments.get(alignment.query).push(alignment);
-      });
+
+      // IMPORTANT: Group alignments from ALL unique/unique_short alignments (not filteredAlignments)
+      // This matches ControlPanel which doesn't apply minAlignmentLength when calculating unique ratio
+      // filteredAlignments is only for visual display, not for determining which contigs to show
+      data.alignments
+        .filter(a => a.ref === selectedRef && (a.tag === 'unique' || a.tag === 'unique_short'))
+        .forEach(alignment => {
+          if (!contigAlignments.has(alignment.query)) {
+            contigAlignments.set(alignment.query, []);
+          }
+          contigAlignments.get(alignment.query).push(alignment);
+        });
+
+      // Build a set of contigs that SHOULD be visible
+      const allowedContigs = new Set();
 
       contigAlignments.forEach((alignments, contigName) => {
         // Check if contig is in a chromosome group
@@ -101,40 +123,44 @@ const DotPlot = ({
 
         // Always show grouped or modified contigs
         if (isInGroup || hasModifications) {
+          allowedContigs.add(contigName);
           return;
         }
 
         // Check if contig is marked as uninformative
         if (uninformativeContigs && uninformativeContigs.has(contigName)) {
-          hiddenContigs.add(contigName);
-          return;
+          return; // Skip, don't add to allowed
         }
 
-        // Check minimum contig size filter (convert kb to bp)
+        // Get the actual contig info from queries (contains the real contig length)
         const contigInfo = data.queries.find(q => q.name === contigName);
-        if (contigInfo && settings.minContigSize && settings.minContigSize > 0) {
-          const minSizeInBp = settings.minContigSize * 1000;
-          if (contigInfo.length < minSizeInBp) {
-            hiddenContigs.add(contigName);
-            return;
+        if (!contigInfo) {
+          return; // Skip, don't add to allowed
+        }
+
+        // Check minimum contig size filter (use ACTUAL contig length not alignment length)
+        if (settings.minContigSize && settings.minContigSize > 0) {
+          if (contigInfo.length < settings.minContigSize) {
+            return; // Skip, don't add to allowed
           }
         }
 
-        // Calculate total alignment length for this contig
-        const totalLength = alignments.reduce((sum, a) => sum + (a.refEnd - a.refStart), 0);
+        // Calculate total unique alignment length for this contig
+        const totalLength = alignments.reduce((sum, a) => sum + a.length, 0);
 
-        // Check alignment length threshold
-        if (totalLength < effectiveMinLength) {
+        // Check unique alignment ratio only (minAlignmentLength only affects visualization, not contig list)
+        const uniqueRatio = totalLength / contigInfo.length;
+        if (uniqueRatio >= settings.minUniqueRatio) {
+          allowedContigs.add(contigName);
+        }
+      });
+
+      // Now hide ALL contigs that are NOT in the allowed set
+      // This ensures we hide contigs that weren't even evaluated (e.g., from other references, repetitive, etc.)
+      const allContigsInFilteredAlignments = new Set(filteredAlignments.map(a => a.query));
+      allContigsInFilteredAlignments.forEach(contigName => {
+        if (!allowedContigs.has(contigName)) {
           hiddenContigs.add(contigName);
-          return;
-        }
-
-        // Check unique alignment ratio
-        if (contigInfo) {
-          const uniqueRatio = totalLength / contigInfo.length;
-          if (uniqueRatio < settings.minUniqueRatio) {
-            hiddenContigs.add(contigName);
-          }
         }
       });
 
@@ -145,7 +171,7 @@ const DotPlot = ({
       // This ensures the Y-axis scale only includes visible contigs (no empty space)
       const filteredData = {
         ...data,
-        queries: data.queries.filter(q => !hiddenContigs.has(q.name)),
+        queries: data.queries.filter(q => allowedContigs.has(q.name)),
         alignments: filteredAlignments
       };
 
@@ -271,14 +297,23 @@ const DotPlot = ({
   const handleMouseMove = useCallback((e) => {
     if (!explorationMode || !isDragging) return;
 
-    // Standard panning in exploration mode
     const rect = canvasRef.current.getBoundingClientRect();
-    const newX = e.clientX - rect.left - dragStart.x;
-    const newY = e.clientY - rect.top - dragStart.y;
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    // Standard panning in exploration mode
+    const newX = mouseX - dragStart.x;
+    const newY = mouseY - dragStart.y;
     onPanChange({ x: newX, y: newY });
   }, [isDragging, explorationMode, dragStart, onPanChange]);
 
   const handleMouseUp = useCallback(() => {
+    if (isDragging) {
+      setIsDragging(false);
+    }
+  }, [isDragging]);
+
+  const handleMouseLeave = useCallback(() => {
     if (isDragging) {
       setIsDragging(false);
     }
@@ -324,13 +359,13 @@ const DotPlot = ({
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
         onWheel={handleWheel}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       />
-      
+
       {/* Zoom indicator */}
       <div className="absolute top-4 left-4 bg-black bg-opacity-75 text-white text-sm px-3 py-1 rounded-md">
         Zoom: {zoom.toFixed(1)}x
@@ -358,20 +393,7 @@ const DotPlot = ({
       
       {/* No data overlay */}
       {!data && !loading && (
-        <div className="absolute inset-0 bg-gray-50 bg-opacity-90 flex items-center justify-center">
-          <div className="text-center">
-            <div className="text-6xl mb-4">🧬</div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">
-              Load Coordinate Files
-            </h3>
-            <p className="text-gray-600 mb-4">
-              Upload .coords and .coords.idx files to begin visualization
-            </p>
-            <p className="text-sm text-gray-500">
-              Generate these files using the minimap_prep.py script
-            </p>
-          </div>
-        </div>
+        <div className="absolute inset-0 bg-gray-50 bg-opacity-90"></div>
       )}
     </>
   );
