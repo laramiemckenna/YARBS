@@ -68,10 +68,15 @@ export const calculateScales = (data, selectedRef, canvasSize, contigOrder = {})
     const orderB = contigOrder[b.name] !== undefined ? contigOrder[b.name] : 999999;
     return orderA - orderB;
   });
-  
-  const queryOffsets = calculateQueryOffsets(orderedQueries);
-  const totalQueryLength = Math.max(...Object.values(queryOffsets)) + 
-                           Math.max(...orderedQueries.map(q => q.length));
+
+  // Reverse the order for offset calculation since Y-axis is flipped
+  // This ensures the first contig in the list appears at the top of the dotplot
+  const reversedQueries = [...orderedQueries].reverse();
+  const queryOffsets = calculateQueryOffsets(reversedQueries);
+
+  // Calculate total query length as the last contig's offset plus its length
+  const lastQuery = reversedQueries[reversedQueries.length - 1];
+  const totalQueryLength = queryOffsets[lastQuery.name] + lastQuery.length;
   
   return {
     refScale: drawWidth / refLength,
@@ -94,21 +99,13 @@ export const calculateScales = (data, selectedRef, canvasSize, contigOrder = {})
 export const calculateQueryOffsets = (queries) => {
   const offsets = {};
   let currentOffset = 0;
-  
-  queries.forEach(query => {
+
+  queries.forEach((query) => {
     offsets[query.name] = currentOffset;
-    
-    // Add gap based on query type and modifications
-    let gap = Math.max(1000000, query.length * 0.1);
-    
-    // Add extra space for broken queries
-    if (query.isBroken) {
-      gap *= 0.5; // Smaller gap for broken segments
-    }
-    
-    currentOffset += query.length + gap;
+    // Stack contigs directly without gaps for a compact visualization
+    currentOffset += query.length;
   });
-  
+
   return offsets;
 };
 
@@ -179,23 +176,24 @@ export const drawAlignments = (ctx, alignments, data, options) => {
  * @param {Object} canvasSize - Canvas dimensions
  */
 export const drawContigGridlines = (ctx, scales, canvasSize) => {
-  const { queryOffsets, queryScale, margin, orderedQueries } = scales;
-  
+  const { queryOffsets, queryScale, margin, orderedQueries, drawHeight } = scales;
+
   ctx.strokeStyle = '#e5e7eb';
   ctx.lineWidth = 1;
   ctx.setLineDash([5, 5]); // Dashed line
-  
+
   orderedQueries.forEach((query, index) => {
     if (index > 0) { // Skip the first contig
-      const yPos = queryOffsets[query.name] * queryScale + margin;
-      
+      // Flip Y-axis for consistent orientation
+      const yPos = drawHeight - (queryOffsets[query.name] * queryScale) + margin;
+
       ctx.beginPath();
       ctx.moveTo(margin, yPos);
       ctx.lineTo(canvasSize.width - margin, yPos);
       ctx.stroke();
     }
   });
-  
+
   ctx.setLineDash([]); // Reset to solid line
 };
 
@@ -208,7 +206,7 @@ export const drawContigGridlines = (ctx, scales, canvasSize) => {
  */
 export const drawSingleAlignment = (ctx, alignment, scales, options) => {
   const { viewMode, settings, isSelected, modification } = options;
-  const { refScale, queryScale, margin, queryOffsets, drawWidth } = scales;
+  const { refScale, queryScale, margin, queryOffsets, drawWidth, drawHeight } = scales;
 
   // Calculate coordinates - reference displays right to left (if referenceFlipped is true)
   const x1 = options.referenceFlipped
@@ -219,8 +217,10 @@ export const drawSingleAlignment = (ctx, alignment, scales, options) => {
     : (alignment.refEnd * refScale) + margin;
 
   const queryOffset = queryOffsets[alignment.query] || 0;
-  let y1 = (queryOffset + alignment.queryStart) * queryScale + margin;
-  let y2 = (queryOffset + alignment.queryEnd) * queryScale + margin;
+  // Flip Y-axis so query coordinates go from bottom to top (standard dotplot orientation)
+  // This eliminates the staircase appearance and makes the visualization more intuitive
+  let y1 = drawHeight - (queryOffset + alignment.queryStart) * queryScale + margin;
+  let y2 = drawHeight - (queryOffset + alignment.queryEnd) * queryScale + margin;
 
   // Determine if we need to swap y coordinates based on orientation and inversion
   // Forward alignments normally have positive slope (bottom-left to top-right)
@@ -323,21 +323,23 @@ export const getAlignmentColor = (alignment, viewMode, settings, modification = 
       // Use alignedOrientation from minimap2 to determine forward/reverse
       // This applies to both 'unique' and 'unique_short' alignments
       // '+' means forward (same strand), '-' means reverse (opposite strand)
-      let isReverse = alignment.alignedOrientation === '-';
+      // Color convention: forward = blue (uniqueReverse), reverse = green (uniqueForward)
+      let isForward = alignment.alignedOrientation === '+';
 
       // If this contig has been inverted by user, swap the colors
       // This reflects the new orientation of the inverted contig
       if (options.isContigInverted) {
-        isReverse = !isReverse; // Flip the color since contig orientation changed
+        isForward = !isForward; // Flip the color since contig orientation changed
       }
 
       // If the reference is NOT flipped (left-to-right instead of right-to-left),
       // we need to swap the colors because the visual slope direction is inverted
       if (options.referenceFlipped === false) {
-        isReverse = !isReverse; // Flip colors to match the new visual orientation
+        isForward = !isForward; // Flip colors to match the new visual orientation
       }
 
-      return isReverse ? settings.colors.uniqueReverse : settings.colors.uniqueForward;
+      // Forward alignments get blue (uniqueReverse), reverse alignments get green (uniqueForward)
+      return isForward ? settings.colors.uniqueReverse : settings.colors.uniqueForward;
     }
   } else if (viewMode === 'identity') {
     // Map identity (25-100%) to color gradient (red to green) - UPDATED RANGE
@@ -434,13 +436,14 @@ export const drawScaleIndicators = (ctx, scales, options) => {
  */
 export const drawQueryLabelsWithModifications = (ctx, scales, options) => {
   const { selectedContigs = [], chromosomeGroups = {}, settings = {} } = options;
-  const { queryOffsets, queryScale, margin } = scales;
+  const { queryOffsets, queryScale, margin, drawHeight } = scales;
   const fontSize = settings.labelFontSize || 14; // Default to 14px if not specified
 
   ctx.textAlign = 'right';
 
   scales.orderedQueries.forEach(query => {
-    const yPos = (queryOffsets[query.name] + query.length / 2) * queryScale + margin;
+    // Flip Y-axis for consistent orientation
+    const yPos = drawHeight - ((queryOffsets[query.name] + query.length / 2) * queryScale) + margin;
 
     // Highlight selected queries
     const isSelected = selectedContigs.includes(query.name);
@@ -547,22 +550,23 @@ export const getVisibleRegion = (canvasSize, zoom, pan) => {
  * @returns {boolean} True if visible
  */
 export const isAlignmentVisible = (alignment, scales, visibleRegion) => {
-  const { refScale, queryScale, margin, queryOffsets } = scales;
-  
+  const { refScale, queryScale, margin, queryOffsets, drawHeight } = scales;
+
   const x1 = alignment.refStart * refScale + margin;
   const x2 = alignment.refEnd * refScale + margin;
   const minX = Math.min(x1, x2);
   const maxX = Math.max(x1, x2);
-  
+
   const queryOffset = queryOffsets[alignment.query] || 0;
-  const y1 = (queryOffset + alignment.queryStart) * queryScale + margin;
-  const y2 = (queryOffset + alignment.queryEnd) * queryScale + margin;
+  // Flip Y-axis for consistent orientation
+  const y1 = drawHeight - (queryOffset + alignment.queryStart) * queryScale + margin;
+  const y2 = drawHeight - (queryOffset + alignment.queryEnd) * queryScale + margin;
   const minY = Math.min(y1, y2);
   const maxY = Math.max(y1, y2);
-  
-  return !(maxX < visibleRegion.left || 
-           minX > visibleRegion.right || 
-           maxY < visibleRegion.top || 
+
+  return !(maxX < visibleRegion.left ||
+           minX > visibleRegion.right ||
+           maxY < visibleRegion.top ||
            minY > visibleRegion.bottom);
 };
 
@@ -576,24 +580,25 @@ export const isAlignmentVisible = (alignment, scales, visibleRegion) => {
  */
 export const getContigAtPosition = (x, y, scales, canvasTransform) => {
   const { zoom, pan } = canvasTransform;
-  const { queryOffsets, queryScale, margin } = scales;
-  
+  const { queryOffsets, queryScale, margin, drawHeight } = scales;
+
   // Convert screen coordinates to canvas coordinates
   const canvasX = (x - pan.x) / zoom;
   const canvasY = (y - pan.y) / zoom;
-  
+
   // Check if click is in the query label area
   if (canvasX > margin) return null; // Only allow interactions in label area
-  
-  // Find which query this Y position corresponds to
+
+  // Find which query this Y position corresponds to (with flipped Y-axis)
   for (const query of scales.orderedQueries) {
-    const queryY = queryOffsets[query.name] * queryScale + margin;
+    const queryY = drawHeight - (queryOffsets[query.name] * queryScale) + margin;
     const queryHeight = query.length * queryScale;
-    
-    if (canvasY >= queryY && canvasY <= queryY + queryHeight) {
+
+    // Note: since Y is flipped, we check if canvasY is within [queryY - queryHeight, queryY]
+    if (canvasY >= queryY - queryHeight && canvasY <= queryY) {
       return query.name;
     }
   }
-  
+
   return null;
 };

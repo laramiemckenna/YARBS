@@ -1094,11 +1094,6 @@ const ControlPanel = ({
                               ? `${(contig.contigLength / 1000000).toFixed(1)}Mb`
                               : `${(contig.contigLength / 1000).toFixed(0)}kb`
                           } contig
-                          {contig.flipSuggestionCount > 0 && !contig.isInverted && (
-                            <span className="text-orange-600 ml-1">
-                              ({Math.round(contig.flipSuggestionCount / contig.alignmentCount * 100)}% suggest flip)
-                            </span>
-                          )}
                           {contig.isModified && <span className="text-purple-600 ml-1">(modified)</span>}
                         </div>
                       </div>

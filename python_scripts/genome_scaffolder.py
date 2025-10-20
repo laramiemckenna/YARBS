@@ -240,13 +240,17 @@ class GenomeScaffolder:
                 # Order contigs according to the 'order' array from the JSON
                 ordered_contigs = self._order_contigs_by_group_order(contigs, order)
 
+                # Reverse the order to match the visualization (Y-axis is flipped in dotplot)
+                # This ensures the scaffold matches what the user sees on screen
+                ordered_contigs = list(reversed(ordered_contigs))
+
                 chromosome_assignments[group_name] = {
                     'contigs': ordered_contigs,
                     'reference': ref_name,
                     'is_subchromosome': True
                 }
 
-                self.logger.info(f"Group {group_name}: {len(ordered_contigs)} contigs from {ref_name} in JSON order: {ordered_contigs}")
+                self.logger.info(f"Group {group_name}: {len(ordered_contigs)} contigs from {ref_name} in reversed order (matches dotplot): {ordered_contigs}")
 
         else:
             # No chromosome groups found - nothing to scaffold
