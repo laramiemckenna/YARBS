@@ -51,7 +51,6 @@ const ControlPanel = ({
   const [showGroupCreation, setShowGroupCreation] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [expandedGroups, setExpandedGroups] = useState(new Set());
-  const [showHelp, setShowHelp] = useState(false);
   const [showStatistics, setShowStatistics] = useState(true);
 
   // Track pending state for chromosome flip operations
@@ -462,8 +461,13 @@ const ControlPanel = ({
                   {/* Unique Alignment Ratio Filter */}
                   <div className="bg-blue-50 p-2 rounded">
                     <div className="flex justify-between items-center mb-1">
-                      <label className="text-xs font-medium text-gray-700">
+                      <label className="text-xs font-medium text-gray-700 flex items-center gap-1">
                         Unique Alignment Ratio
+                        <HelpCircle
+                          size={12}
+                          className="text-gray-400 cursor-help"
+                          title="Show contigs based on % of contig length that has unique alignment to the selected reference"
+                        />
                       </label>
                       <div className="flex items-center gap-2">
                         <input
@@ -507,8 +511,13 @@ const ControlPanel = ({
 
                   {/* Alignment Length Filter */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                    <label className="flex items-center gap-1 text-xs font-medium text-gray-700 mb-1">
                       Min Total Alignment Length
+                      <HelpCircle
+                        size={12}
+                        className="text-gray-400 cursor-help"
+                        title="Hides individual alignment lines shorter than this length (doesn't affect contig list)"
+                      />
                     </label>
                     <div className="flex items-center gap-2">
                       <input
@@ -539,8 +548,13 @@ const ControlPanel = ({
 
                   {/* Minimum Contig Size Filter */}
                   <div className="bg-orange-50 p-2 rounded">
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                    <label className="flex items-center gap-1 text-xs font-medium text-gray-700 mb-1">
                       Minimum Contig Size
+                      <HelpCircle
+                        size={12}
+                        className="text-gray-400 cursor-help"
+                        title="Hide contigs smaller than specified size"
+                      />
                     </label>
                     <div className="flex items-center gap-2">
                       <input
@@ -722,8 +736,13 @@ const ControlPanel = ({
                 {/* Unique Alignment Ratio Filter */}
                 <div className="bg-blue-50 p-2 rounded">
                   <div className="flex justify-between items-center mb-1">
-                    <label className="text-xs font-medium text-gray-700">
+                    <label className="text-xs font-medium text-gray-700 flex items-center gap-1">
                       Unique Alignment Ratio
+                      <HelpCircle
+                        size={12}
+                        className="text-gray-400 cursor-help"
+                        title="Show contigs based on % of contig length that has unique alignment to the selected reference"
+                      />
                     </label>
                     <div className="flex items-center gap-2">
                       <input
@@ -767,8 +786,13 @@ const ControlPanel = ({
 
                 {/* Alignment Length Filter */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                  <label className="flex items-center gap-1 text-xs font-medium text-gray-700 mb-1">
                     Min Total Alignment Length
+                    <HelpCircle
+                      size={12}
+                      className="text-gray-400 cursor-help"
+                      title="Hides individual alignment lines shorter than this length (doesn't affect contig list)"
+                    />
                   </label>
                   <div className="flex items-center gap-2">
                     <input
@@ -799,8 +823,13 @@ const ControlPanel = ({
 
                 {/* Minimum Contig Size Filter */}
                 <div className="bg-orange-50 p-2 rounded">
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                  <label className="flex items-center gap-1 text-xs font-medium text-gray-700 mb-1">
                     Minimum Contig Size
+                    <HelpCircle
+                      size={12}
+                      className="text-gray-400 cursor-help"
+                      title="Hide contigs smaller than specified size"
+                    />
                   </label>
                   <div className="flex items-center gap-2">
                     <input
@@ -1043,9 +1072,6 @@ const ControlPanel = ({
                                 )}
                               </span>
                               <div className="flex items-center gap-2">
-                                <span className="text-xs text-gray-500">
-                                  {contig.identity.toFixed(1)}%
-                                </span>
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -1155,7 +1181,7 @@ const ControlPanel = ({
                       Create Chromosome Group
                     </h6>
                     <p className="text-xs text-blue-700 mb-2">
-                      Group selected contigs for polyploid chromosome copies (e.g., Chr08.1, Chr08.2)
+                      Group selected contigs to make a chromosome — multiple groups can be made for each reference chromosome
                     </p>
 
                     {!showGroupCreation ? (
@@ -1316,79 +1342,6 @@ const ControlPanel = ({
           )}
         </div>
       )}
-
-      {/* Help & Tips Section */}
-      <div className="mb-6">
-        <button
-          onClick={() => setShowHelp(!showHelp)}
-          className="w-full flex items-center justify-between p-3 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <HelpCircle size={16} className="text-blue-600" />
-            <span className="font-semibold text-blue-800">Help & Tips</span>
-          </div>
-          {showHelp ? <ChevronUp size={16} className="text-blue-600" /> : <ChevronDown size={16} className="text-blue-600" />}
-        </button>
-
-        {showHelp && (
-          <div className="mt-3 text-xs text-gray-600 space-y-3 bg-gray-50 p-4 rounded border border-gray-200">
-            <div>
-              <p className="font-semibold text-gray-800 mb-2">Getting Started:</p>
-              <ul className="space-y-1 ml-4 list-disc">
-                <li>Generate alignment files using the minimap_prep.py script</li>
-                <li>Load both .coords and .coords.idx files using the toolbar</li>
-                <li>Select a reference chromosome to begin visualizing alignments</li>
-              </ul>
-            </div>
-
-            <div>
-              <p className="font-semibold text-gray-800 mb-2">Exploration Mode:</p>
-              <ul className="space-y-1 ml-4 list-disc">
-                <li>Use mouse wheel to zoom in and out</li>
-                <li>Click and drag to pan around the visualization</li>
-                <li>View alignment patterns and relationships</li>
-              </ul>
-            </div>
-
-            <div>
-              <p className="font-semibold text-gray-800 mb-2">Scaffolding Mode:</p>
-              <ul className="space-y-1 ml-4 list-disc">
-                <li>Select contigs from the list to work with them</li>
-                <li>Hold Shift to select ranges of contigs</li>
-                <li>Use arrow buttons to reorder contigs precisely</li>
-                <li>Flip contigs to match reference orientation</li>
-                <li>Create chromosome groups for polyploid copies</li>
-                <li>Mark uninformative contigs to hide them</li>
-              </ul>
-            </div>
-
-            <div>
-              <p className="font-semibold text-gray-800 mb-2">Chromosome Groups:</p>
-              <ul className="space-y-1 ml-4 list-disc">
-                <li>Group similar contigs representing polyploid chromosome copies</li>
-                <li>Grouped contigs are greyed out in the visualization</li>
-                <li>Click groups to expand and see member contigs</li>
-                <li>Use the delete button to remove groups if needed</li>
-              </ul>
-            </div>
-
-            <div>
-              <p className="font-semibold text-gray-800 mb-2">Filters:</p>
-              <ul className="space-y-1 ml-4 list-disc">
-                <li><strong>Unique Alignment Ratio:</strong> Show contigs based on % of unique alignment to total length</li>
-                <li><strong>Min Total Alignment Length:</strong> Visual filter only (doesn't remove from list)</li>
-                <li><strong>Min Contig Size:</strong> Hide contigs smaller than specified size</li>
-              </ul>
-            </div>
-
-            <div className="border-t pt-2 mt-2">
-              <p className="text-gray-500 italic">
-                Tip: Use the Undo button to revert recent changes in scaffolding mode
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
 
     </div>
   );

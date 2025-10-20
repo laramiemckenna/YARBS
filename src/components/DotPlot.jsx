@@ -180,14 +180,6 @@ const DotPlot = ({
     ctx.fillText('Query', 0, 0);
     ctx.restore();
 
-    // Draw modification indicators (static overlay)
-    if (modifications.length > 0) {
-      ctx.fillStyle = '#f59e0b';
-      ctx.font = 'bold 10px Inter, sans-serif';
-      ctx.textAlign = 'right';
-      ctx.fillText(`${modifications.length} modifications applied`, canvasSize.width - 10, 25);
-    }
-
   }, [data, settings, viewMode, selectedRef, zoom, pan, selectedContigs, canvasSize, modifications, visualMods, contigOrder, referenceFlipped, allowedContigsSet, chromosomeGroups]);
 
   // Redraw when dependencies change

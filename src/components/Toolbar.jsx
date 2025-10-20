@@ -114,26 +114,43 @@ const Toolbar = ({
         {/* Center section - View controls */}
         {hasData && (
           <div className="flex items-center gap-2">
-            {/* Mode toggle */}
-            <button
-              onClick={() => onExplorationModeChange(!explorationMode)}
-              className={`
-                flex items-center gap-2 px-3 py-2 rounded-md font-medium transition-colors shadow-sm
-                ${explorationMode
-                  ? 'bg-green-500 hover:bg-green-600 text-white'
-                  : 'bg-red-500 hover:bg-red-600 text-white'
-                }
-              `}
-              title={explorationMode
-                ? 'Switch to scaffolding mode for contig manipulation'
-                : 'Switch to exploration mode for viewing and navigation'
-              }
-            >
-              {explorationMode ? <Move size={16} /> : <Scissors size={16} />}
-              <span className="hidden sm:inline">
-                {explorationMode ? 'Exploration' : 'Scaffolding'}
-              </span>
-            </button>
+            {/* Mode toggle slider */}
+            <div className="relative inline-flex items-center bg-gray-200 rounded-lg p-1 shadow-sm">
+              {/* Sliding background */}
+              <div
+                className={`absolute top-1 bottom-1 rounded-md transition-all duration-300 ease-in-out ${
+                  explorationMode ? 'bg-green-500' : 'bg-red-500'
+                }`}
+                style={{
+                  left: explorationMode ? '4px' : 'calc(50%)',
+                  width: 'calc(50% - 4px)',
+                }}
+              />
+
+              {/* Exploration button */}
+              <button
+                onClick={() => onExplorationModeChange(true)}
+                className={`relative z-10 flex items-center gap-1.5 px-3 py-2 rounded-md font-medium transition-colors ${
+                  explorationMode ? 'text-white' : 'text-gray-700 hover:text-gray-900'
+                }`}
+                title="Switch to exploration mode for viewing and navigation"
+              >
+                <Move size={16} />
+                <span className="hidden sm:inline">Exploration</span>
+              </button>
+
+              {/* Scaffolding button */}
+              <button
+                onClick={() => onExplorationModeChange(false)}
+                className={`relative z-10 flex items-center gap-1.5 px-3 py-2 rounded-md font-medium transition-colors ${
+                  !explorationMode ? 'text-white' : 'text-gray-700 hover:text-gray-900'
+                }`}
+                title="Switch to scaffolding mode for contig manipulation"
+              >
+                <Scissors size={16} />
+                <span className="hidden sm:inline">Scaffolding</span>
+              </button>
+            </div>
           </div>
         )}
 
