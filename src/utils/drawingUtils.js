@@ -166,7 +166,7 @@ export const drawAlignments = (ctx, alignments, data, options) => {
   drawAxes(ctx, scales, { width, height });
 
   // Draw scale indicators with zoom awareness
-  drawScaleIndicators(ctx, scales, { width, height, selectedRef, zoom, pan });
+  drawScaleIndicators(ctx, scales, { width, height, selectedRef, zoom, pan, referenceFlipped });
   
   // Draw query labels with modification indicators
   drawQueryLabelsWithModifications(ctx, scales, options);
@@ -210,9 +210,13 @@ export const drawSingleAlignment = (ctx, alignment, scales, options) => {
   const { viewMode, settings, isSelected, modification } = options;
   const { refScale, queryScale, margin, queryOffsets, drawWidth } = scales;
 
-  // Calculate coordinates - reference displays right to left
-  const x1 = drawWidth - (alignment.refStart * refScale) + margin;
-  const x2 = drawWidth - (alignment.refEnd * refScale) + margin;
+  // Calculate coordinates - reference displays right to left (if referenceFlipped is true)
+  const x1 = options.referenceFlipped
+    ? drawWidth - (alignment.refStart * refScale) + margin
+    : (alignment.refStart * refScale) + margin;
+  const x2 = options.referenceFlipped
+    ? drawWidth - (alignment.refEnd * refScale) + margin
+    : (alignment.refEnd * refScale) + margin;
 
   const queryOffset = queryOffsets[alignment.query] || 0;
   let y1 = (queryOffset + alignment.queryStart) * queryScale + margin;
@@ -327,6 +331,12 @@ export const getAlignmentColor = (alignment, viewMode, settings, modification = 
         isReverse = !isReverse; // Flip the color since contig orientation changed
       }
 
+      // If the reference is NOT flipped (left-to-right instead of right-to-left),
+      // we need to swap the colors because the visual slope direction is inverted
+      if (options.referenceFlipped === false) {
+        isReverse = !isReverse; // Flip colors to match the new visual orientation
+      }
+
       return isReverse ? settings.colors.uniqueReverse : settings.colors.uniqueForward;
     }
   } else if (viewMode === 'identity') {
@@ -372,7 +382,7 @@ export const drawAxes = (ctx, scales, canvasSize) => {
  * @param {Object} options - Drawing options (includes zoom and pan)
  */
 export const drawScaleIndicators = (ctx, scales, options) => {
-  const { height, width, zoom = 1, selectedRef } = options;
+  const { height, width, zoom = 1, selectedRef, referenceFlipped = true } = options;
   const { refScale, margin, refLength, drawWidth } = scales;
 
   ctx.fillStyle = '#6b7280';
@@ -385,11 +395,13 @@ export const drawScaleIndicators = (ctx, scales, options) => {
   if (zoom > 5) numTicks = 10;
   else if (zoom > 2) numTicks = 7;
 
-  // Reference scale (X-axis) - visual is right-to-left, but labels show left-to-right coordinates
+  // Reference scale (X-axis)
   const refTicks = calculateTicks(refLength, numTicks);
   refTicks.forEach(tick => {
-    // Visual position is flipped (right-to-left)
-    const x = drawWidth - (tick * refScale) + margin;
+    // Visual position depends on referenceFlipped
+    const x = referenceFlipped
+      ? drawWidth - (tick * refScale) + margin  // Right-to-left
+      : (tick * refScale) + margin;              // Left-to-right
 
     // Draw tick mark
     ctx.strokeStyle = '#d1d5db';
@@ -399,8 +411,8 @@ export const drawScaleIndicators = (ctx, scales, options) => {
     ctx.lineTo(x, height - margin + 5);
     ctx.stroke();
 
-    // Draw label showing genomic position (left-to-right coordinates)
-    const actualPosition = refLength - tick;
+    // Draw label showing genomic position
+    const actualPosition = referenceFlipped ? refLength - tick : tick;
     ctx.fillText(formatBasePairs(actualPosition), x, height - margin + 18);
   });
 

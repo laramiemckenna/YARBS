@@ -28,7 +28,7 @@ function App() {
   const [viewMode, setViewMode] = useState('directionality'); // 'directionality' | 'identity'
   const [explorationMode, setExplorationMode] = useState(true);
   const [selectedRef, setSelectedRef] = useState('');
-  const [referenceFlipped, setReferenceFlipped] = useState(true); // Reference displayed right-to-left
+  const [referenceFlipped, setReferenceFlipped] = useState(false); // Reference displayed right-to-left
   
   // Canvas interaction state
   const [zoom, setZoom] = useState(1);
