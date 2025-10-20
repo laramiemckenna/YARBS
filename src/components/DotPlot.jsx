@@ -1,6 +1,6 @@
 // src/components/DotPlot.jsx - Enhanced version with mouse wheel zoom in exploration mode
 import React, { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { drawAlignments, getFilteredAlignments } from '../utils/drawingUtils';
+import { drawAlignments } from '../utils/drawingUtils';
 import { calculateVisualModifications } from '../utils/visualizationUpdater';
 
 const DotPlot = ({
@@ -19,7 +19,9 @@ const DotPlot = ({
   contigOrder,
   referenceFlipped,
   uninformativeContigs,
-  chromosomeGroups
+  chromosomeGroups,
+  allowedContigsSet,
+  contigAlignmentsMap
 }) => {
   const canvasRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -60,73 +62,9 @@ const DotPlot = ({
     return data ? calculateVisualModifications(data.alignments, modifications) : { modifiedAlignments: new Map() };
   }, [data, modifications]);
 
-  // OPTIMIZED: Memoize contig alignments map to avoid rebuilding on every render
-  const contigAlignmentsMap = useMemo(() => {
-    if (!data || !selectedRef) return new Map();
-
-    const map = new Map();
-    data.alignments
-      .filter(a => a.ref === selectedRef && (a.tag === 'unique' || a.tag === 'unique_short'))
-      .forEach(alignment => {
-        if (!map.has(alignment.query)) {
-          map.set(alignment.query, []);
-        }
-        map.get(alignment.query).push(alignment);
-      });
-    return map;
-  }, [data, selectedRef]);
-
-  // OPTIMIZED: Memoize allowed contigs set to avoid recalculating on every render
-  const allowedContigsSet = useMemo(() => {
-    if (!data || !selectedRef) return new Set();
-
-    const allowed = new Set();
-
-    contigAlignmentsMap.forEach((alignments, contigName) => {
-      // Check if contig is in a chromosome group
-      const isInGroup = chromosomeGroups && Object.values(chromosomeGroups).some(group =>
-        group.contigs && group.contigs.includes(contigName)
-      );
-
-      // Check if contig has modifications
-      const hasModifications = modifications && modifications.some(m =>
-        m.query === contigName || m.contigName === contigName
-      );
-
-      // Always show grouped or modified contigs
-      if (isInGroup || hasModifications) {
-        allowed.add(contigName);
-        return;
-      }
-
-      // Check if contig is marked as uninformative
-      if (uninformativeContigs && uninformativeContigs.has(contigName)) {
-        return; // Skip
-      }
-
-      // Get the actual contig info
-      const contigInfo = data.queries.find(q => q.name === contigName);
-      if (!contigInfo) return;
-
-      // Check minimum contig size filter
-      if (settings.minContigSize && settings.minContigSize > 0) {
-        if (contigInfo.length < settings.minContigSize) {
-          return; // Skip
-        }
-      }
-
-      // Calculate total unique alignment length
-      const totalLength = alignments.reduce((sum, a) => sum + a.length, 0);
-
-      // Check unique alignment ratio
-      const uniqueRatio = totalLength / contigInfo.length;
-      if (uniqueRatio >= settings.minUniqueRatio) {
-        allowed.add(contigName);
-      }
-    });
-
-    return allowed;
-  }, [data, selectedRef, contigAlignmentsMap, chromosomeGroups, modifications, uninformativeContigs, settings.minContigSize, settings.minUniqueRatio]);
+  // NOTE: allowedContigsSet and contigAlignmentsMap are now computed once in App.js
+  // and passed down as props for better performance. This eliminates duplicate
+  // computation between DotPlot and ControlPanel components.
 
   // Main drawing function
   const drawDotPlot = useCallback(() => {
@@ -152,12 +90,22 @@ const DotPlot = ({
     ctx.scale(zoom, zoom);
     
     try {
-      // Get filtered alignments based on current settings
-      let filteredAlignments = getFilteredAlignments(data, selectedRef, settings);
+      // OPTIMIZED: Filter alignments using pre-computed allowedContigsSet from App.js
+      // This eliminates redundant computation - cap and contig filters already applied
+      let filteredAlignments = data.alignments.filter(alignment => {
+        // Must be for the selected reference
+        if (alignment.ref !== selectedRef) return false;
 
-      // OPTIMIZED: Use pre-computed memoized allowedContigsSet instead of recalculating
-      // Filter out alignments from contigs not in the allowed set
-      filteredAlignments = filteredAlignments.filter(a => allowedContigsSet.has(a.query));
+        // Must be in the allowed contigs set (pre-filtered in App.js with cap + filters)
+        if (!allowedContigsSet.has(alignment.query)) return false;
+
+        // Apply alignment-level settings
+        if (!settings.showRepetitive && alignment.tag === 'repetitive') return false;
+        if (!settings.showAllAlignments && alignment.tag === 'unique_short') return false;
+        if (alignment.length < settings.minAlignmentLength) return false;
+
+        return true;
+      });
 
       // Create a filtered data object with only visible queries
       // This ensures the Y-axis scale only includes visible contigs (no empty space)

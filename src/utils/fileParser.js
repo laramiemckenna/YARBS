@@ -153,6 +153,15 @@ const parseIndex = (idxText) => {
     // Skip overview section for now - we don't need it for basic visualization
   }
   
+  // Sort references and queries using natural (alphanumeric) sort
+  // This handles both numeric (1, 2, 10) and text (Chr01, Chr02, Chr10) correctly
+  const naturalSort = (a, b) => {
+    return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+  };
+
+  references.sort(naturalSort);
+  queries.sort(naturalSort);
+
   return { references, queries };
 };
 

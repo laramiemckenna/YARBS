@@ -10,12 +10,20 @@ import { applyModificationsToVisualization } from './utils/visualizationUpdater'
 import { calculateN50 } from './utils/n50Calculator';
 import './App.css';
 
+// Performance constant: Maximum contigs to process per reference
+// Fixed at 500 to ensure smooth performance with large datasets
+const CONTIG_CAP = 500;
+
 function App() {
   // Main application state
   const [originalData, setOriginalData] = useState(null); // Keep original for reset
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  
+
+  // Performance optimization: Pre-built indices for fast lookups
+  // Built once during data load, reused across all components
+  const [dataIndices, setDataIndices] = useState(null); // { contigToLength, referenceToAlignments }
+
   // Visualization state
   const [viewMode, setViewMode] = useState('directionality'); // 'directionality' | 'identity'
   const [explorationMode, setExplorationMode] = useState(true);
@@ -90,21 +98,132 @@ function App() {
     return originalData;
   }, [originalData, modifications, contigOrder]);
 
-  // Visualization settings
+  // Visualization settings - MUST be declared before currentReferenceData useMemo
   const [settings, setSettings] = useState({
     showRepetitive: true,
     showAllAlignments: true, // Show all unique alignments by default (includes unique_short)
     minAlignmentLength: 0,
     minUniqueRatio: 0.05, // Minimum ratio of unique alignment to total contig length (5% default)
-    minContigSize: 30000, // Minimum contig size to display (30,000 bp default)
+    minContigSize: 100000, // Minimum contig size to display (100,000 bp default)
     lineThickness: 3, // Default 3x (range 1-10)
     labelFontSize: 14, // Default 14px (range 8-24)
     colors: {
-      uniqueForward: '#0081b0',
-      uniqueReverse: '#87ba2d',
-      repetitive: '#ef8717'
+      uniqueForward: '#0076ff',
+      uniqueReverse: '#17a34a',
+      repetitive: '#f97315'
     }
   });
+
+  // PERFORMANCE OPTIMIZATION: Pre-compute allowed contigs for current reference
+  // This is computed once here and passed down to both DotPlot and ControlPanel
+  // to eliminate duplicate processing across components
+  const currentReferenceData = useMemo(() => {
+    if (!data || !selectedRef || !dataIndices) {
+      return {
+        allowedContigsSet: new Set(),
+        contigAlignmentsMap: new Map(),
+        capMetadata: { totalContigs: 0, cappedCount: 0, capApplied: false }
+      };
+    }
+
+    const { contigToLength } = dataIndices;
+
+    // Get all unique/unique_short alignments for this reference
+    const referenceAlignments = data.alignments.filter(
+      a => a.ref === selectedRef && (a.tag === 'unique' || a.tag === 'unique_short')
+    );
+
+    // STEP 1: Collect all contigs that align to this reference
+    const allContigsSet = new Set();
+    const contigAlignmentsMap = new Map();
+
+    referenceAlignments.forEach(alignment => {
+      allContigsSet.add(alignment.query);
+      if (!contigAlignmentsMap.has(alignment.query)) {
+        contigAlignmentsMap.set(alignment.query, []);
+      }
+      contigAlignmentsMap.get(alignment.query).push(alignment);
+    });
+
+    const allContigsArray = Array.from(allContigsSet);
+    const totalContigs = allContigsArray.length;
+
+    // STEP 2: Apply cap - sort by contig length and take top N
+    let contigsToProcess = allContigsArray;
+    let capApplied = false;
+
+    if (totalContigs > CONTIG_CAP) {
+      const sortedByLength = [...allContigsArray].sort((a, b) => {
+        return (contigToLength.get(b) || 0) - (contigToLength.get(a) || 0);
+      });
+      contigsToProcess = sortedByLength.slice(0, CONTIG_CAP);
+      capApplied = true;
+    }
+
+    // STEP 3: Add exemptions - always include grouped/modified contigs
+    const exemptContigs = new Set();
+    allContigsArray.forEach(contigName => {
+      const isModified = modifications.some(m => m.query === contigName);
+      const isGrouped = Object.values(chromosomeGroups).some(g =>
+        g.contigs && g.contigs.includes(contigName)
+      );
+      if (isModified || isGrouped) {
+        exemptContigs.add(contigName);
+      }
+    });
+
+    const finalContigsToProcess = new Set([...contigsToProcess, ...exemptContigs]);
+
+    // STEP 4: Apply additional filters (minContigSize, minUniqueRatio, uninformative)
+    const allowedContigsSet = new Set();
+
+    finalContigsToProcess.forEach(contigName => {
+      // Exempt contigs bypass all filters
+      if (exemptContigs.has(contigName)) {
+        allowedContigsSet.add(contigName);
+        return;
+      }
+
+      // Skip uninformative contigs
+      if (uninformativeContigs.has(contigName)) {
+        return;
+      }
+
+      // Get contig length
+      const contigLength = contigToLength.get(contigName);
+      if (!contigLength) return;
+
+      // Apply minimum contig size filter
+      if (contigLength < settings.minContigSize) {
+        return;
+      }
+
+      // Get alignments for this contig
+      const alignments = contigAlignmentsMap.get(contigName);
+      if (!alignments || alignments.length === 0) {
+        return;
+      }
+
+      // Calculate total unique alignment length
+      const totalLength = alignments.reduce((sum, a) => sum + a.length, 0);
+
+      // Check unique alignment ratio
+      const uniqueRatio = totalLength / contigLength;
+      if (uniqueRatio >= settings.minUniqueRatio) {
+        allowedContigsSet.add(contigName);
+      }
+    });
+
+    return {
+      allowedContigsSet,
+      contigAlignmentsMap,
+      capMetadata: {
+        totalContigs,
+        cappedCount: capApplied ? CONTIG_CAP : totalContigs,
+        capApplied
+      }
+    };
+  }, [data, selectedRef, dataIndices, modifications, chromosomeGroups, uninformativeContigs, settings.minContigSize, settings.minUniqueRatio]);
 
   // Set up global zoom update function for mouse wheel
   useEffect(() => {
@@ -177,6 +296,22 @@ function App() {
       // We only need to preserve the original structure for reset functionality
       // NOTE: data is now derived from originalData via useMemo, so we only set originalData
       setOriginalData(parsedData);
+
+      // PERFORMANCE OPTIMIZATION: Build lookup indices for O(1) access
+      // These indices are built once at load time and reused across all components
+      console.log('Building performance indices...');
+      const contigToLength = new Map();
+
+      // Build contig length map from queries
+      parsedData.queries.forEach(query => {
+        contigToLength.set(query.name, query.length);
+      });
+
+      // Store indices in state
+      setDataIndices({
+        contigToLength
+      });
+      console.log(`Built indices for ${contigToLength.size} contigs`);
 
       // OPTIMIZED: Single-pass workspace initialization - O(n) instead of O(n*m)
       // Build a map of reference -> contigs in one pass through alignments
@@ -255,7 +390,11 @@ function App() {
             const vizSettings = sessionData.visualizationSettings;
 
             if (vizSettings.settings) {
-              setSettings(vizSettings.settings);
+              // Merge settings with defaults to handle missing fields in old sessions
+              setSettings({
+                ...settings,
+                ...vizSettings.settings
+              });
             }
             if (vizSettings.viewMode) {
               setViewMode(vizSettings.viewMode);
@@ -570,6 +709,7 @@ function App() {
     if (confirmReset) {
       // NOTE: data is derived from originalData, so we only need to clear originalData
       setOriginalData(null);
+      setDataIndices(null); // Also clear indices
       setSelectedRef('');
       setReferenceWorkspaces({});
       setLockedChromosomes(new Set());
@@ -673,6 +813,14 @@ function App() {
     });
   };
 
+  // Helper function to generate a unique numeric identifier for export filenames
+  const generateUniqueId = () => {
+    // Use timestamp + random 3-digit number for uniqueness
+    const timestamp = Date.now();
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return `${timestamp.toString().slice(-6)}${random}`;
+  };
+
   const exportSession = () => {
     // Export complete session including all workspaces and visualization settings
     // Convert Sets to Arrays for JSON serialization
@@ -718,7 +866,8 @@ function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `yarbs_session_${new Date().toISOString().split('T')[0]}.json`;
+    const uniqueId = generateUniqueId();
+    a.download = `yarbs_session_${new Date().toISOString().split('T')[0]}_${uniqueId}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -747,6 +896,7 @@ function App() {
     });
 
     const timestamp = new Date().toISOString().split('T')[0];
+    const uniqueId = generateUniqueId();
 
     // 1. Export JSON file for scaffolding
     const scaffoldingFile = {
@@ -762,7 +912,7 @@ function App() {
     const jsonUrl = URL.createObjectURL(jsonBlob);
     const jsonLink = document.createElement('a');
     jsonLink.href = jsonUrl;
-    jsonLink.download = `scaffolding_${timestamp}.json`;
+    jsonLink.download = `scaffolding_${timestamp}_${uniqueId}.json`;
     document.body.appendChild(jsonLink);
     jsonLink.click();
     document.body.removeChild(jsonLink);
@@ -868,7 +1018,8 @@ function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `scaffolding_changes_${new Date().toISOString().split('T')[0]}.csv`;
+    const uniqueId = generateUniqueId();
+    a.download = `scaffolding_changes_${new Date().toISOString().split('T')[0]}_${uniqueId}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -944,7 +1095,7 @@ function App() {
               onExportForScaffolding={exportForScaffolding}
               loading={loading}
               hasData={!!data}
-              hasModifications={modifications.length > 0}
+              hasModifications={modifications.length > 0 || Object.keys(chromosomeGroups).length > 0}
             />
 
             {/* Dot Plot */}
@@ -967,6 +1118,8 @@ function App() {
                 referenceFlipped={referenceFlipped}
                 uninformativeContigs={uninformativeContigs}
                 chromosomeGroups={chromosomeGroups}
+                allowedContigsSet={currentReferenceData.allowedContigsSet}
+                contigAlignmentsMap={currentReferenceData.contigAlignmentsMap}
               />
             </div>
           </div>
@@ -1000,6 +1153,9 @@ function App() {
             uninformativeContigs={uninformativeContigs}
             onUninformativeContigsChange={setUninformativeContigsForWorkspace}
             onZoomToContig={zoomToContig}
+            allowedContigsSet={currentReferenceData.allowedContigsSet}
+            contigAlignmentsMap={currentReferenceData.contigAlignmentsMap}
+            capMetadata={currentReferenceData.capMetadata}
           />
         </div>
       </div>

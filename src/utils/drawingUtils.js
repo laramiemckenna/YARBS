@@ -2,16 +2,22 @@
 
 /**
  * Filter alignments based on current settings and selected reference
+ * Note: Contig cap logic is handled by the caller (DotPlot.jsx allowedContigsSet)
  * @param {Object} data - Parsed alignment data
  * @param {string} selectedRef - Currently selected reference
  * @param {Object} settings - Visualization settings
+ * @param {Array} modifications - Query modifications (not used here, kept for compatibility)
+ * @param {Object} chromosomeGroups - Chromosome groups (not used here, kept for compatibility)
+ * @param {Set} uninformativeContigs - Contigs marked as uninformative (not used here, kept for compatibility)
  * @returns {Array} Filtered alignments
  */
-export const getFilteredAlignments = (data, selectedRef, settings) => {
+export const getFilteredAlignments = (data, selectedRef, settings, modifications = [], chromosomeGroups = {}, uninformativeContigs = new Set()) => {
   if (!data || !data.alignments) {
     return [];
   }
 
+  // Filter alignments based on settings
+  // Note: Contig-level filtering (cap, minContigSize, minUniqueRatio) is done by caller
   return data.alignments.filter(alignment => {
     // Filter by reference
     if (selectedRef && alignment.ref !== selectedRef) {

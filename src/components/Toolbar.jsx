@@ -13,6 +13,7 @@ import {
   Info,
   Undo
 } from 'lucide-react';
+import DemoSection from './DemoSection';
 
 const Toolbar = ({
   onFileUpload,
@@ -81,9 +82,9 @@ const Toolbar = ({
                   : 'text-white shadow-sm'
                 }
               `}
-              style={!loading ? { backgroundColor: '#9B544B' } : {}}
-              onMouseEnter={(e) => !loading && (e.target.style.backgroundColor = '#8A4A42')}
-              onMouseLeave={(e) => !loading && (e.target.style.backgroundColor = '#9B544B')}
+              style={!loading ? { backgroundColor: '#ef4444' } : {}}
+              onMouseEnter={(e) => !loading && (e.target.style.backgroundColor = '#dc2626')}
+              onMouseLeave={(e) => !loading && (e.target.style.backgroundColor = '#ef4444')}
               title="Upload .coords and .coords.idx files"
             >
               {loading ? (
@@ -259,22 +260,28 @@ const Toolbar = ({
         </div>
       )}
 
-      {/* Help hints for new users */}
+      {/* Help hints and demo section for new users */}
       {!hasData && !loading && (
-        <div className="mt-6 pt-6 border-t border-gray-200">
-          <div className="text-2xl text-gray-600">
-            <div className="flex items-center gap-3 mb-4">
-              <Info size={36} className="text-blue-500" />
-              <span className="font-medium text-3xl">Getting Started:</span>
-            </div>
-            <div className="ml-12 space-y-3 text-xl">
-              <p>1. Generate coordinate files using: <code className="bg-gray-100 px-2 py-1 rounded text-lg">python minimap_prep.py -r reference.fasta -q query.fasta -o output</code></p>
-              <p>2. Click "Load Files" and select both <code className="bg-gray-100 px-2 py-1 rounded text-lg">.coords</code> and <code className="bg-gray-100 px-2 py-1 rounded text-lg">.coords.idx</code> files</p>
-              <p>3. <strong>Optional:</strong> Include a previously exported <code className="bg-gray-100 px-2 py-1 rounded text-lg">.json</code> session file to restore your work</p>
-              <p>4. Use Exploration mode for viewing, Scaffolding mode for modifications</p>
+        <>
+          {/* Getting Started guide */}
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <div className="text-2xl text-gray-600">
+              <div className="flex items-center gap-3 mb-4">
+                <Info size={36} className="text-blue-500" />
+                <span className="font-medium text-3xl">Getting Started with Your Own Data:</span>
+              </div>
+              <div className="ml-12 space-y-3 text-xl">
+                <p>1. Generate coordinate files using: <code className="bg-gray-100 px-2 py-1 rounded text-lg">python minimap_prep.py -r reference.fasta -q query.fasta -o output</code></p>
+                <p>2. Click "Load Files" and select both <code className="bg-gray-100 px-2 py-1 rounded text-lg">.coords</code> and <code className="bg-gray-100 px-2 py-1 rounded text-lg">.coords.idx</code> files</p>
+                <p>3. <strong>Optional:</strong> Include a previously exported <code className="bg-gray-100 px-2 py-1 rounded text-lg">.json</code> session file to restore your work</p>
+                <p>4. Use Exploration mode for viewing, Scaffolding mode for modifications</p>
+              </div>
             </div>
           </div>
-        </div>
+
+          {/* Demo datasets */}
+          <DemoSection onFileUpload={onFileUpload} />
+        </>
       )}
     </div>
   );

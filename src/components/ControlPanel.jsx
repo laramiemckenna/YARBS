@@ -43,7 +43,10 @@ const ControlPanel = ({
   onReferenceFlippedChange,
   uninformativeContigs,
   onUninformativeContigsChange,
-  onZoomToContig
+  onZoomToContig,
+  allowedContigsSet,
+  contigAlignmentsMap,
+  capMetadata
 }) => {
   const [showGroupCreation, setShowGroupCreation] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
@@ -64,82 +67,58 @@ const ControlPanel = ({
     }
   }, [explorationMode]);
 
-  // Get contigs for a reference with enhanced metadata - memoized to fix dependency warning
+  // OPTIMIZED: Build metadata for pre-filtered contigs from App.js
+  // The heavy lifting (cap, filters) is done in App.js - we just add display metadata here
   const getContigsForReference = useCallback((data, refName) => {
-    if (!data || !refName) return [];
+    if (!data || !refName || !contigAlignmentsMap || !capMetadata) {
+      return { contigs: [] };
+    }
 
+    // Build metadata for allowed contigs (already filtered in App.js)
     const contigMap = new Map();
 
-    // First pass: collect all alignments for this reference (don't filter by length yet)
-    data.alignments
-      .filter(a => {
-        // Filter by reference and tag only
-        if (a.ref !== refName) return false;
-        if (a.tag !== 'unique' && a.tag !== 'unique_short') return false;
-        return true;
-      })
-      .forEach(a => {
-        if (!contigMap.has(a.query)) {
-          // Get the actual contig length from the queries array
-          const contigInfo = data.queries.find(q => q.name === a.query);
-          contigMap.set(a.query, {
-            name: a.query,
-            identity: a.identity,
-            length: a.length,
-            contigLength: contigInfo ? contigInfo.length : 0, // Actual contig length
-            alignmentCount: 0,
-            flipSuggestionCount: 0, // Track how many alignments suggest flipping
-            totalLength: 0,
-            averageIdentity: 0,
-            isModified: modifications.some(m => m.query === a.query),
-            group: Object.keys(chromosomeGroups).find(group =>
-              chromosomeGroups[group].contigs.includes(a.query)
-            )
-          });
-        }
-        const contig = contigMap.get(a.query);
-        contig.alignmentCount++;
-        contig.identity = Math.max(contig.identity, a.identity);
-        contig.totalLength += a.length;
-        contig.averageIdentity = (contig.averageIdentity * (contig.alignmentCount - 1) + a.identity) / contig.alignmentCount;
+    // Process only the contigs in the alignments map (already capped/filtered)
+    contigAlignmentsMap.forEach((alignments, contigName) => {
+      if (!allowedContigsSet.has(contigName)) return;
 
-        // Track flip suggestions from minimap2
-        if (a.needsFlip === true) {
-          contig.flipSuggestionCount++;
-        }
+      const contigInfo = data.queries.find(q => q.name === contigName);
+      if (!contigInfo) return;
+
+      // Calculate metadata from alignments
+      let maxIdentity = 0;
+      let totalLength = 0;
+      let totalIdentity = 0;
+      let flipCount = 0;
+
+      alignments.forEach(a => {
+        maxIdentity = Math.max(maxIdentity, a.identity);
+        totalLength += a.length;
+        totalIdentity += a.identity;
+        if (a.needsFlip === true) flipCount++;
       });
 
-    // Filter contigs based on unique alignment ratio only
-    // The minAlignmentLength setting only affects visualization, not the contig list
-    // Keep contigs that have either:
-    // - Meet the unique ratio filter criterion, OR
-    // - Are part of a chromosome group (user explicitly assigned), OR
-    // - Are modified (user has worked on them)
+      // Check if this contig is currently inverted (flipped from original orientation)
+      const isInverted = modifications.some(m => m.type === 'invert' && m.query === contigName);
 
-    const filteredContigs = Array.from(contigMap.values()).filter(contig => {
-      if (contig.group || contig.isModified) return true; // Always show grouped/modified
-
-      // Hide contigs marked as uninformative
-      if (uninformativeContigs && uninformativeContigs.has(contig.name)) return false;
-
-      // Get the actual contig info from queries (contains the real contig length)
-      const contigInfo = data.queries.find(q => q.name === contig.name);
-      if (!contigInfo) return false; // Skip if contig not found
-
-      // Check minimum contig size filter (use ACTUAL contig length not alignment length)
-      if (settings.minContigSize && settings.minContigSize > 0) {
-        if (contigInfo.length < settings.minContigSize) return false;
-      }
-
-      // Check unique alignment ratio only (alignment length filter only affects visualization)
-      const uniqueRatio = contig.totalLength / contigInfo.length;
-      if (uniqueRatio < settings.minUniqueRatio) return false;
-
-      return true;
+      contigMap.set(contigName, {
+        name: contigName,
+        identity: maxIdentity,
+        length: alignments.length > 0 ? alignments[0].length : 0,
+        contigLength: contigInfo.length,
+        alignmentCount: alignments.length,
+        flipSuggestionCount: flipCount,
+        totalLength,
+        averageIdentity: alignments.length > 0 ? totalIdentity / alignments.length : 0,
+        isModified: modifications.some(m => m.query === contigName),
+        isInverted: isInverted,
+        group: Object.keys(chromosomeGroups).find(group =>
+          chromosomeGroups[group].contigs.includes(contigName)
+        )
+      });
     });
 
     // Sort by custom order if available, otherwise by identity
-    return filteredContigs.sort((a, b) => {
+    const sortedContigs = Array.from(contigMap.values()).sort((a, b) => {
       const orderA = contigOrder[a.name] !== undefined ? contigOrder[a.name] : 999999;
       const orderB = contigOrder[b.name] !== undefined ? contigOrder[b.name] : 999999;
 
@@ -151,29 +130,23 @@ const ControlPanel = ({
       // Otherwise fall back to identity sorting
       return b.identity - a.identity;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modifications, chromosomeGroups, contigOrder, settings.minUniqueRatio, settings.minContigSize, uninformativeContigs]);
+
+    return { contigs: sortedContigs };
+  }, [modifications, chromosomeGroups, contigOrder, contigAlignmentsMap, allowedContigsSet, capMetadata]);
 
   // Calculate statistics - now after function definition
   const statistics = useMemo(() => {
-    if (!data) return null;
+    if (!data || !capMetadata) return null;
 
     const uniqueAlignments = data.alignments.filter(a => a.tag === 'unique').length;
     const uniqueShortAlignments = data.alignments.filter(a => a.tag === 'unique_short').length;
     const repetitiveAlignments = data.alignments.filter(a => a.tag === 'repetitive').length;
     const selectedRefData = data.references.find(r => r.name === selectedRef);
-    const contigsForSelectedRef = getContigsForReference(data, selectedRef);
+    const contigResult = getContigsForReference(data, selectedRef);
     const modifiedQueries = new Set(modifications.map(m => m.query)).size;
 
-    // Calculate how many alignments/contigs are filtered by minAlignmentLength
-    const allContigsForRef = data.alignments
-      .filter(a => a.ref === selectedRef && (a.tag === 'unique' || a.tag === 'unique_short'))
-      .reduce((map, a) => {
-        if (!map.has(a.query)) map.set(a.query, true);
-        return map;
-      }, new Map());
-    const totalContigsForRef = allContigsForRef.size;
-    const filteredOutContigs = totalContigsForRef - contigsForSelectedRef.length;
+    // Calculate filtered out contigs (those hidden by filters, not by cap)
+    const filteredOutContigs = capMetadata.cappedCount - contigResult.contigs.length;
 
     return {
       totalReferences: data.references.length,
@@ -183,13 +156,15 @@ const ControlPanel = ({
       uniqueShortAlignments,
       repetitiveAlignments,
       selectedRefLength: selectedRefData?.length || 0,
-      contigsForSelectedRef: contigsForSelectedRef.length,
-      totalContigsForRef,
+      contigsForSelectedRef: contigResult.contigs.length,
+      totalContigsForRef: capMetadata.totalContigs,
+      cappedCount: capMetadata.cappedCount,
+      capApplied: capMetadata.capApplied,
       filteredOutContigs,
       modifiedQueries,
       chromosomeGroups: Object.keys(chromosomeGroups).length
     };
-  }, [data, selectedRef, modifications, chromosomeGroups, getContigsForReference]);
+  }, [data, selectedRef, modifications, chromosomeGroups, getContigsForReference, capMetadata]);
 
   // Handle moving contig up or down in the list
   const handleMoveContig = (contigName, direction) => {
@@ -326,7 +301,9 @@ const ControlPanel = ({
     onSelectedContigsChange([]); // Clear selection
   };
 
-  const contigsForSelectedRef = data ? getContigsForReference(data, selectedRef) : [];
+  // Get contigs result (includes capping metadata)
+  const contigResult = data ? getContigsForReference(data, selectedRef) : { contigs: [], totalContigsForRef: 0, cappedCount: 0, capApplied: false };
+  const contigsForSelectedRef = contigResult.contigs;
 
   if (!data) {
     return (
@@ -370,7 +347,12 @@ const ControlPanel = ({
               <div>Modified queries: <strong className="text-purple-600">{statistics.modifiedQueries}</strong></div>
               <div>Modifications: <strong className="text-purple-600">{modifications.length}</strong></div>
               <div>Chr groups: <strong className="text-blue-600">{statistics.chromosomeGroups}</strong></div>
-              <div colSpan="2">Selected ref contigs: <strong>{statistics.contigsForSelectedRef}</strong></div>
+              <div colSpan="2">
+                Selected ref contigs: <strong>{statistics.contigsForSelectedRef}</strong>
+                {statistics.capApplied && (
+                  <span className="text-xs text-gray-500"> (of {statistics.cappedCount} capped, {statistics.totalContigsForRef} total)</span>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -467,6 +449,15 @@ const ControlPanel = ({
                       </span>
                     )}
                   </div>
+
+                  {/* Performance Warning - Cap Applied */}
+                  {statistics && statistics.capApplied && (
+                    <div className="bg-red-50 border border-red-300 rounded p-2">
+                      <p className="text-xs text-red-700">
+                        ⚠️ Showing largest {statistics.cappedCount} of {statistics.totalContigsForRef} contigs for loading performance.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Unique Alignment Ratio Filter */}
                   <div className="bg-blue-50 p-2 rounded">
@@ -574,7 +565,11 @@ const ControlPanel = ({
                   </div>
 
                   <p className="text-xs text-gray-600 border-t pt-2">
-                    Showing <strong>{statistics?.contigsForSelectedRef || 0}</strong> of <strong>{statistics?.totalContigsForRef || 0}</strong> contigs
+                    {statistics?.capApplied ? (
+                      <>Showing <strong>{statistics?.contigsForSelectedRef || 0}</strong> (of {statistics?.cappedCount || 0} capped, {statistics?.totalContigsForRef || 0} total)</>
+                    ) : (
+                      <>Showing <strong>{statistics?.contigsForSelectedRef || 0}</strong> of <strong>{statistics?.totalContigsForRef || 0}</strong> contigs</>
+                    )}
                   </p>
                 </div>
 
@@ -715,6 +710,15 @@ const ControlPanel = ({
                   )}
                 </div>
 
+                {/* Performance Warning - Cap Applied */}
+                {statistics && statistics.capApplied && (
+                  <div className="bg-red-50 border border-red-300 rounded p-2">
+                    <p className="text-xs text-red-700">
+                      ⚠️ Showing largest {statistics.cappedCount} of {statistics.totalContigsForRef} contigs for loading performance.
+                    </p>
+                  </div>
+                )}
+
                 {/* Unique Alignment Ratio Filter */}
                 <div className="bg-blue-50 p-2 rounded">
                   <div className="flex justify-between items-center mb-1">
@@ -821,7 +825,11 @@ const ControlPanel = ({
                 </div>
 
                 <p className="text-xs text-gray-600 border-t pt-2">
-                  Showing <strong>{statistics?.contigsForSelectedRef || 0}</strong> of <strong>{statistics?.totalContigsForRef || 0}</strong> contigs
+                  {statistics?.capApplied ? (
+                    <>Showing <strong>{statistics?.contigsForSelectedRef || 0}</strong> (of {statistics?.cappedCount || 0} capped, {statistics?.totalContigsForRef || 0} total)</>
+                  ) : (
+                    <>Showing <strong>{statistics?.contigsForSelectedRef || 0}</strong> of <strong>{statistics?.totalContigsForRef || 0}</strong> contigs</>
+                  )}
                 </p>
               </div>
 
@@ -1028,7 +1036,7 @@ const ControlPanel = ({
                                     {contig.group}
                                   </span>
                                 )}
-                                {contig.flipSuggestionCount > 0 && contig.flipSuggestionCount / contig.alignmentCount > 0.5 && (
+                                {contig.flipSuggestionCount > 0 && contig.flipSuggestionCount / contig.alignmentCount > 0.5 && !contig.isInverted && (
                                   <span className="ml-1 text-xs bg-orange-100 text-orange-700 px-1 rounded" title={`${contig.flipSuggestionCount}/${contig.alignmentCount} alignments suggest flipping`}>
                                     ↻ flip?
                                   </span>
@@ -1060,7 +1068,7 @@ const ControlPanel = ({
                               ? `${(contig.contigLength / 1000000).toFixed(1)}Mb`
                               : `${(contig.contigLength / 1000).toFixed(0)}kb`
                           } contig
-                          {contig.flipSuggestionCount > 0 && (
+                          {contig.flipSuggestionCount > 0 && !contig.isInverted && (
                             <span className="text-orange-600 ml-1">
                               ({Math.round(contig.flipSuggestionCount / contig.alignmentCount * 100)}% suggest flip)
                             </span>
