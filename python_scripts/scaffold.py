@@ -3,6 +3,11 @@
 """
 Genome Scaffolder - Apply modifications from interactive tool to create scaffolded genome
 Part 3 of the interactive reference-based scaffolding pipeline
+
+Version: v1.0
+Last modified: 10/21/2025
+Author: Laramie Akozbek
+Development facilitated by: Claude Code (Sonnet 4.5)
 """
 
 import argparse

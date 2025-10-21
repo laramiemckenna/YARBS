@@ -46,12 +46,17 @@ const ControlPanel = ({
   onZoomToContig,
   allowedContigsSet,
   contigAlignmentsMap,
-  capMetadata
+  capMetadata,
+  lookedUpContigs,
+  onAddLookedUpContig,
+  onRemoveLookedUpContig,
+  onClearAllLookedUpContigs
 }) => {
   const [showGroupCreation, setShowGroupCreation] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [expandedGroups, setExpandedGroups] = useState(new Set());
   const [showStatistics, setShowStatistics] = useState(true);
+  const [lookupInput, setLookupInput] = useState('');
 
   // Track pending state for chromosome flip operations
   const [isPending, startTransition] = useTransition();
@@ -110,6 +115,7 @@ const ControlPanel = ({
         averageIdentity: alignments.length > 0 ? totalIdentity / alignments.length : 0,
         isModified: modifications.some(m => m.query === contigName),
         isInverted: isInverted,
+        isLookedUp: lookedUpContigs && lookedUpContigs.includes(contigName),
         group: Object.keys(chromosomeGroups).find(group =>
           chromosomeGroups[group].contigs.includes(contigName)
         )
@@ -131,7 +137,7 @@ const ControlPanel = ({
     });
 
     return { contigs: sortedContigs };
-  }, [modifications, chromosomeGroups, contigOrder, contigAlignmentsMap, allowedContigsSet, capMetadata]);
+  }, [modifications, chromosomeGroups, contigOrder, contigAlignmentsMap, allowedContigsSet, capMetadata, lookedUpContigs]);
 
   // Calculate statistics - now after function definition
   const statistics = useMemo(() => {
@@ -286,18 +292,14 @@ const ControlPanel = ({
     onSelectedContigsChange([]); // Clear selection
   };
 
-    const handleAddToExistingGroup = (groupName) => {
-    if (selectedContigs.length === 0) return;
 
-    const existingGroup = chromosomeGroups[groupName];
-    // Preserve the order of contigs as they appear in the list, not selection order
-    const orderedSelectedContigs = contigsForSelectedRef
-      .filter(contig => selectedContigs.includes(contig.name))
-      .map(contig => contig.name);
-    const newContigs = [...new Set([...existingGroup.contigs, ...orderedSelectedContigs])];
+  // Handle contig lookup
+  const handleLookupContig = () => {
+    const trimmedInput = lookupInput.trim();
+    if (!trimmedInput) return;
 
-    onCreateChromosomeGroup(groupName, newContigs);
-    onSelectedContigsChange([]); // Clear selection
+    onAddLookedUpContig(trimmedInput);
+    setLookupInput(''); // Clear input after successful lookup
   };
 
   // Get contigs result (includes capping metadata)
@@ -464,9 +466,9 @@ const ControlPanel = ({
                       <label className="text-xs font-medium text-gray-700 flex items-center gap-1">
                         Unique Alignment Ratio
                         <HelpCircle
-                          size={12}
-                          className="text-gray-400 cursor-help"
-                          title="Show contigs based on % of contig length that has unique alignment to the selected reference"
+                          size={14}
+                          className="text-blue-500 cursor-help hover:text-blue-700 transition-colors"
+                          title="Filters contigs based on what percentage of the contig's total length has unique alignment to the selected reference. Higher values = more stringent filtering. Useful for removing contigs with weak/partial alignments."
                         />
                       </label>
                       <div className="flex items-center gap-2">
@@ -567,8 +569,9 @@ const ControlPanel = ({
                             minContigSize: value >= 0 ? value : 0
                           });
                         }}
+                        onWheel={(e) => e.target.blur()}
                         placeholder="0"
-                        className="flex-1 px-2 py-1 border border-orange-300 rounded text-xs"
+                        className="flex-1 px-2 py-1 border border-orange-300 rounded text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         min="0"
                       />
                       <span className="text-xs text-gray-600">bp</span>
@@ -739,9 +742,9 @@ const ControlPanel = ({
                     <label className="text-xs font-medium text-gray-700 flex items-center gap-1">
                       Unique Alignment Ratio
                       <HelpCircle
-                        size={12}
-                        className="text-gray-400 cursor-help"
-                        title="Show contigs based on % of contig length that has unique alignment to the selected reference"
+                        size={14}
+                        className="text-blue-500 cursor-help hover:text-blue-700 transition-colors"
+                        title="Filters contigs based on what percentage of the contig's total length has unique alignment to the selected reference. Higher values = more stringent filtering. Useful for removing contigs with weak/partial alignments."
                       />
                     </label>
                     <div className="flex items-center gap-2">
@@ -789,9 +792,9 @@ const ControlPanel = ({
                   <label className="flex items-center gap-1 text-xs font-medium text-gray-700 mb-1">
                     Min Total Alignment Length
                     <HelpCircle
-                      size={12}
-                      className="text-gray-400 cursor-help"
-                      title="Hides individual alignment lines shorter than this length (doesn't affect contig list)"
+                      size={14}
+                      className="text-gray-500 cursor-help hover:text-gray-700 transition-colors"
+                      title="Filters out individual alignment lines (visual connections) shorter than this length. This only affects the visualization display, not which contigs appear in the list. Useful for reducing visual clutter from very short alignments."
                     />
                   </label>
                   <div className="flex items-center gap-2">
@@ -826,9 +829,9 @@ const ControlPanel = ({
                   <label className="flex items-center gap-1 text-xs font-medium text-gray-700 mb-1">
                     Minimum Contig Size
                     <HelpCircle
-                      size={12}
-                      className="text-gray-400 cursor-help"
-                      title="Hide contigs smaller than specified size"
+                      size={14}
+                      className="text-orange-500 cursor-help hover:text-orange-700 transition-colors"
+                      title="Hides contigs smaller than the specified size (in base pairs). Set to 0 to show all contigs. Useful for filtering out small contigs that may not be informative for scaffolding. Note: can speed up initial processing if you have many tiny contigs, but small contigs may still be informative."
                     />
                   </label>
                   <div className="flex items-center gap-2">
@@ -842,8 +845,9 @@ const ControlPanel = ({
                           minContigSize: value >= 0 ? value : 0
                         });
                       }}
+                      onWheel={(e) => e.target.blur()}
                       placeholder="0"
-                      className="flex-1 px-2 py-1 border border-orange-300 rounded text-xs"
+                      className="flex-1 px-2 py-1 border border-orange-300 rounded text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       min="0"
                     />
                     <span className="text-xs text-gray-600">bp</span>
@@ -948,6 +952,78 @@ const ControlPanel = ({
         )}
       </div>
 
+      {/* Contig Lookup Section */}
+      {!explorationMode && (
+        <div className="mb-6">
+          <h4 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+            <Database size={16} />
+            Contig Lookup
+          </h4>
+          <p className="text-xs text-gray-600 mb-2">
+            Force-display specific contigs at the top of the list, bypassing all filters.
+          </p>
+
+          {/* Lookup input */}
+          <div className="flex items-center gap-2 mb-2">
+            <input
+              type="text"
+              value={lookupInput}
+              onChange={(e) => setLookupInput(e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  handleLookupContig();
+                }
+              }}
+              placeholder="Enter contig name..."
+              className="flex-1 p-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+            <button
+              onClick={handleLookupContig}
+              disabled={!lookupInput.trim()}
+              className="px-3 py-2 text-sm bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-md transition-colors"
+            >
+              Lookup
+            </button>
+          </div>
+
+          {/* List of looked-up contigs */}
+          {lookedUpContigs && lookedUpContigs.length > 0 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-md p-2">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-blue-800">
+                  Looked-up contigs ({lookedUpContigs.length})
+                </span>
+                <button
+                  onClick={onClearAllLookedUpContigs}
+                  className="text-xs text-red-600 hover:underline"
+                >
+                  Clear all
+                </button>
+              </div>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {lookedUpContigs.map((contigName, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between bg-white p-1.5 rounded border border-blue-100"
+                  >
+                    <span className="text-xs text-gray-700 flex items-center gap-1">
+                      🔍 {contigName}
+                    </span>
+                    <button
+                      onClick={() => onRemoveLookedUpContig(contigName)}
+                      className="text-red-500 hover:bg-red-100 rounded p-0.5"
+                      title="Remove from lookup"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Scaffolding Controls */}
       {!explorationMode && (
         <div className="mb-6">
@@ -980,8 +1056,8 @@ const ControlPanel = ({
                         key={contig.name}
                         className={`
                           p-2 cursor-pointer text-sm border-b border-gray-100 hover:bg-gray-50
-                          ${selectedContigs.includes(contig.name) ? 'bg-blue-100' : ''}
-                          ${contig.isModified ? 'border-l-4 border-l-purple-400' : ''}
+                          ${selectedContigs.includes(contig.name) ? 'bg-blue-200 border-l-4 border-l-blue-600 font-semibold' : ''}
+                          ${contig.isModified && !selectedContigs.includes(contig.name) ? 'border-l-4 border-l-purple-400' : ''}
                         `}
                         draggable={!explorationMode}
                         onDragStart={(e) => {
@@ -1056,10 +1132,18 @@ const ControlPanel = ({
                           <div className="flex-1">
                             <div className="flex justify-between items-center">
                               <span className={`font-medium ${contig.isModified ? 'text-purple-700' : ''}`}>
+                                {selectedContigs.includes(contig.name) && (
+                                  <span className="mr-1 text-blue-600">✓</span>
+                                )}
                                 {!explorationMode && (
                                   <span className="mr-2 text-gray-400">⋮⋮</span>
                                 )}
                                 {contig.name}
+                                {contig.isLookedUp && (
+                                  <span className="ml-1 text-xs" title="Looked-up contig (forced display)">
+                                    🔍
+                                  </span>
+                                )}
                                 {contig.group && (
                                   <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1 rounded">
                                     {contig.group}
@@ -1277,15 +1361,6 @@ const ControlPanel = ({
                       {group.contigs.slice(0, 3).join(', ')}
                       {group.contigs.length > 3 && ` +${group.contigs.length - 3} more`}
                     </div>
-                  )}
-
-                  {selectedContigs.length > 0 && (
-                    <button
-                      onClick={() => handleAddToExistingGroup(groupName)}
-                      className="text-xs text-blue-600 hover:underline mt-2"
-                    >
-                      Add {selectedContigs.length} selected to this group
-                    </button>
                   )}
                 </div>
               );

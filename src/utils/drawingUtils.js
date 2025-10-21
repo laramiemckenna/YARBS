@@ -100,10 +100,11 @@ export const calculateQueryOffsets = (queries) => {
   const offsets = {};
   let currentOffset = 0;
 
-  queries.forEach((query) => {
+  queries.forEach((query, index) => {
     offsets[query.name] = currentOffset;
-    // Stack contigs directly without gaps for a compact visualization
-    currentOffset += query.length;
+    // Add a small gap (2% of contig length) between contigs to prevent cutoff
+    const gap = index < queries.length - 1 ? query.length * 0.02 : 0;
+    currentOffset += query.length + gap;
   });
 
   return offsets;
@@ -182,16 +183,14 @@ export const drawContigGridlines = (ctx, scales, canvasSize) => {
   ctx.lineWidth = 1;
   ctx.setLineDash([5, 5]); // Dashed line
 
-  orderedQueries.forEach((query, index) => {
-    if (index > 0) { // Skip the first contig
-      // Flip Y-axis for consistent orientation
-      const yPos = drawHeight - (queryOffsets[query.name] * queryScale) + margin;
+  orderedQueries.forEach((query) => {
+    // Draw separator line at the top edge of each contig
+    const yPos = drawHeight - (queryOffsets[query.name] * queryScale) + margin;
 
-      ctx.beginPath();
-      ctx.moveTo(margin, yPos);
-      ctx.lineTo(canvasSize.width - margin, yPos);
-      ctx.stroke();
-    }
+    ctx.beginPath();
+    ctx.moveTo(margin, yPos);
+    ctx.lineTo(canvasSize.width - margin, yPos);
+    ctx.stroke();
   });
 
   ctx.setLineDash([]); // Reset to solid line

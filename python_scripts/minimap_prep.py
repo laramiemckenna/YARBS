@@ -11,6 +11,11 @@ VERSION 3 - Performance optimizations:
   - Categorical dtypes for memory efficiency (~30% reduction)
   - Pre-calculated tag counts in index creation (2-3x speedup)
   Total expected speedup: 20-100x on post-minimap2 processing
+
+Version: v3.0
+Last modified: 10/21/2025
+Author: Laramie Akozbek
+Development facilitated by: Claude Code (Sonnet 4.5)
 """
 
 import argparse

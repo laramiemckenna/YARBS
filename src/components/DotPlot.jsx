@@ -287,9 +287,10 @@ const DotPlot = ({
       <canvas
         ref={canvasRef}
         className="w-full h-full"
-        style={{ 
+        style={{
           cursor: getCursorStyle(),
-          touchAction: 'none'
+          touchAction: 'none',
+          border: '1px solid #e5e7eb'
         }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}

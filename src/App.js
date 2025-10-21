@@ -50,6 +50,7 @@ function App() {
         chromosomeGroups: {},
         uninformativeContigs: new Set(),
         selectedContigs: [],
+        lookedUpContigs: [], // Contigs manually looked up to force display
         saved: true,
         lastModified: null,
         history: [] // Per-reference undo history
@@ -79,6 +80,7 @@ function App() {
   const chromosomeGroups = useMemo(() => currentWorkspace?.chromosomeGroups || {}, [currentWorkspace]);
   const contigOrder = useMemo(() => currentWorkspace?.contigOrder || {}, [currentWorkspace]);
   const uninformativeContigs = useMemo(() => currentWorkspace?.uninformativeContigs || new Set(), [currentWorkspace]);
+  const lookedUpContigs = useMemo(() => currentWorkspace?.lookedUpContigs || [], [currentWorkspace]);
   const history = useMemo(() => currentWorkspace?.history || [], [currentWorkspace]);
 
   // OPTIMIZED: Derive data synchronously from originalData + modifications + contigOrder
@@ -160,14 +162,15 @@ function App() {
       capApplied = true;
     }
 
-    // STEP 3: Add exemptions - always include grouped/modified contigs
+    // STEP 3: Add exemptions - always include grouped/modified/looked-up contigs
     const exemptContigs = new Set();
     allContigsArray.forEach(contigName => {
       const isModified = modifications.some(m => m.query === contigName);
       const isGrouped = Object.values(chromosomeGroups).some(g =>
         g.contigs && g.contigs.includes(contigName)
       );
-      if (isModified || isGrouped) {
+      const isLookedUp = lookedUpContigs.includes(contigName);
+      if (isModified || isGrouped || isLookedUp) {
         exemptContigs.add(contigName);
       }
     });
@@ -214,6 +217,18 @@ function App() {
       }
     });
 
+    // STEP 5: Force-add looked-up contigs (even if they have no alignments to this reference)
+    lookedUpContigs.forEach(contigName => {
+      // Only add if the contig actually exists in the dataset
+      if (contigToLength.has(contigName)) {
+        allowedContigsSet.add(contigName);
+        // Create empty alignment map if it doesn't exist (for contigs with no alignments)
+        if (!contigAlignmentsMap.has(contigName)) {
+          contigAlignmentsMap.set(contigName, []);
+        }
+      }
+    });
+
     return {
       allowedContigsSet,
       contigAlignmentsMap,
@@ -223,7 +238,7 @@ function App() {
         capApplied
       }
     };
-  }, [data, selectedRef, dataIndices, modifications, chromosomeGroups, uninformativeContigs, settings.minContigSize, settings.minUniqueRatio]);
+  }, [data, selectedRef, dataIndices, modifications, chromosomeGroups, uninformativeContigs, lookedUpContigs, settings.minContigSize, settings.minUniqueRatio]);
 
   // Set up global zoom update function for mouse wheel
   useEffect(() => {
@@ -350,6 +365,7 @@ function App() {
           chromosomeGroups: {},
           uninformativeContigs: new Set(),
           selectedContigs: [],
+          lookedUpContigs: [],
           saved: true,
           lastModified: null,
           history: []
@@ -376,6 +392,7 @@ function App() {
                 ...workspace,
                 uninformativeContigs: new Set(workspace.uninformativeContigs || []),
                 selectedContigs: workspace.selectedContigs || [],
+                lookedUpContigs: workspace.lookedUpContigs || [],
                 saved: true,
                 lastModified: workspace.lastModified || null,
                 history: workspace.history || []
@@ -648,6 +665,7 @@ function App() {
         chromosomeGroups: {},
         uninformativeContigs: new Set(),
         selectedContigs: [],
+        lookedUpContigs: [],
         saved: true,
         lastModified: null,
         history: []
@@ -707,14 +725,37 @@ function App() {
       'This will clear all data and return to the load page. Any unsaved work will be lost. Are you sure?'
     );
     if (confirmReset) {
-      // NOTE: data is derived from originalData, so we only need to clear originalData
+      // Clear all data
       setOriginalData(null);
-      setDataIndices(null); // Also clear indices
+      setDataIndices(null);
       setSelectedRef('');
       setReferenceWorkspaces({});
       setLockedChromosomes(new Set());
+
+      // Reset visualization state
+      setViewMode('directionality');
+      setExplorationMode(true);
+      setReferenceFlipped(false);
       setZoom(1);
       setPan({ x: 0, y: 0 });
+
+      // Reset settings to defaults
+      setSettings({
+        showRepetitive: true,
+        showAllAlignments: true,
+        minAlignmentLength: 0,
+        minUniqueRatio: 0.05,
+        minContigSize: 100000,
+        lineThickness: 3,
+        labelFontSize: 14,
+        colors: {
+          uniqueForward: '#0076ff',
+          uniqueReverse: '#17a34a',
+          repetitive: '#f97315'
+        }
+      });
+
+      // Clear error
       setError(null);
     }
   };
@@ -784,6 +825,7 @@ function App() {
       chromosomeGroups: {},
       contigOrder: initialOrder,
       uninformativeContigs: new Set(),
+      lookedUpContigs: [],
       history: [],
       saved: true
     });
@@ -810,6 +852,75 @@ function App() {
     if (!selectedRef) return;
     updateWorkspace(selectedRef, {
       uninformativeContigs: contigs
+    });
+  };
+
+  // Contig lookup helper functions
+  const addLookedUpContig = (contigName) => {
+    if (!selectedRef) return;
+    saveToHistory();
+
+    // Check if contig exists in data
+    if (!data || !data.queries.find(q => q.name === contigName)) {
+      alert(`Contig "${contigName}" not found in the dataset.`);
+      return;
+    }
+
+    // Check if already looked up
+    if (lookedUpContigs.includes(contigName)) {
+      return; // Already in the list, don't add duplicate
+    }
+
+    // Assign a negative order index to force it to the top
+    // Use -1000, -999, -998... for lookup order
+    const newLookedUpList = [...lookedUpContigs, contigName];
+    const newContigOrder = { ...contigOrder };
+
+    // Assign negative index based on position in lookup list
+    const lookupIndex = newLookedUpList.length - 1;
+    newContigOrder[contigName] = -1000 + lookupIndex;
+
+    updateWorkspace(selectedRef, {
+      lookedUpContigs: newLookedUpList,
+      contigOrder: newContigOrder
+    });
+  };
+
+  const removeLookedUpContig = (contigName) => {
+    if (!selectedRef) return;
+    saveToHistory();
+
+    // Remove from lookup list
+    const newLookedUpList = lookedUpContigs.filter(c => c !== contigName);
+
+    // Remove the negative order index (let it fall back to default ordering or be hidden by filters)
+    const newContigOrder = { ...contigOrder };
+    delete newContigOrder[contigName];
+
+    // Reassign indices to remaining looked-up contigs to maintain their order at the top
+    newLookedUpList.forEach((name, index) => {
+      newContigOrder[name] = -1000 + index;
+    });
+
+    updateWorkspace(selectedRef, {
+      lookedUpContigs: newLookedUpList,
+      contigOrder: newContigOrder
+    });
+  };
+
+  const clearAllLookedUpContigs = () => {
+    if (!selectedRef) return;
+    saveToHistory();
+
+    // Remove all negative order indices for looked-up contigs
+    const newContigOrder = { ...contigOrder };
+    lookedUpContigs.forEach(contigName => {
+      delete newContigOrder[contigName];
+    });
+
+    updateWorkspace(selectedRef, {
+      lookedUpContigs: [],
+      contigOrder: newContigOrder
     });
   };
 
@@ -895,13 +1006,21 @@ function App() {
       }
     });
 
+    // Sort chromosome groups alphanumerically
+    const sortedChromosomeGroups = {};
+    Object.keys(allChromosomeGroups)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
+      .forEach(key => {
+        sortedChromosomeGroups[key] = allChromosomeGroups[key];
+      });
+
     const timestamp = new Date().toISOString().split('T')[0];
     const uniqueId = generateUniqueId();
 
     // 1. Export JSON file for scaffolding
     const scaffoldingFile = {
       modifications: allModifications,
-      chromosomeGroups: allChromosomeGroups,
+      chromosomeGroups: sortedChromosomeGroups,
       timestamp: new Date().toISOString(),
       note: "Export for genome_scaffolder.py - contains chromosome groups and modifications for final scaffolding"
     };
@@ -1156,6 +1275,10 @@ function App() {
             allowedContigsSet={currentReferenceData.allowedContigsSet}
             contigAlignmentsMap={currentReferenceData.contigAlignmentsMap}
             capMetadata={currentReferenceData.capMetadata}
+            lookedUpContigs={lookedUpContigs}
+            onAddLookedUpContig={addLookedUpContig}
+            onRemoveLookedUpContig={removeLookedUpContig}
+            onClearAllLookedUpContigs={clearAllLookedUpContigs}
           />
         </div>
       </div>

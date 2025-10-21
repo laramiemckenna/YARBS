@@ -292,6 +292,17 @@ const Toolbar = ({
                 <p>2. Click "Load Files" and select both <code className="bg-gray-100 px-2 py-1 rounded text-lg">.coords</code> and <code className="bg-gray-100 px-2 py-1 rounded text-lg">.coords.idx</code> files</p>
                 <p>3. <strong>Optional:</strong> Include a previously exported <code className="bg-gray-100 px-2 py-1 rounded text-lg">.json</code> session file to restore your work</p>
                 <p>4. Use Exploration mode for viewing, Scaffolding mode for modifications</p>
+                <p className="mt-4">
+                  📖 <strong>For detailed documentation and scripts, visit:</strong>{' '}
+                  <a
+                    href="https://github.com/laramiemckenna/YARBS"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-800 underline font-medium"
+                  >
+                    github.com/laramiemckenna/YARBS
+                  </a>
+                </p>
               </div>
             </div>
           </div>
