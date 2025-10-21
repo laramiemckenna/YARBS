@@ -1,15 +1,15 @@
 {
   "files": {
-    "main.css": "/YARBS/static/css/main.b7c03f5d.css",
-    "main.js": "/YARBS/static/js/main.2961c796.js",
+    "main.css": "/YARBS/static/css/main.adad991b.css",
+    "main.js": "/YARBS/static/js/main.6b9c49bf.js",
     "static/js/453.7efc7da1.chunk.js": "/YARBS/static/js/453.7efc7da1.chunk.js",
     "index.html": "/YARBS/index.html",
-    "main.b7c03f5d.css.map": "/YARBS/static/css/main.b7c03f5d.css.map",
-    "main.2961c796.js.map": "/YARBS/static/js/main.2961c796.js.map",
+    "main.adad991b.css.map": "/YARBS/static/css/main.adad991b.css.map",
+    "main.6b9c49bf.js.map": "/YARBS/static/js/main.6b9c49bf.js.map",
     "453.7efc7da1.chunk.js.map": "/YARBS/static/js/453.7efc7da1.chunk.js.map"
   },
   "entrypoints": [
-    "static/css/main.b7c03f5d.css",
-    "static/js/main.2961c796.js"
+    "static/css/main.adad991b.css",
+    "static/js/main.6b9c49bf.js"
   ]
 }
