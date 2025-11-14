@@ -1,6 +1,6 @@
 # YARBS — Yet Another Reference-Based Scaffolding Tool
 
-Hey, it's Yarbi here! Welcome to the documentation for YARBS, Yet Another Reference-Based Scaffolding Tool.
+Welcome to the documentation for YARBS, Yet Another Reference-Based Scaffolding Tool.
 
 **Try it now:** https://laramiemckenna.github.io/YARBS/
 
@@ -11,6 +11,8 @@ This tool was built to address two of the issues that often arise during referen
 1. **Manual curation is impossible or inaccessible.** As such, the scaffolding process can often be a blackbox to the user and manually adjusting the output can be cumbersome. To address this, YARBS allows the user to ultimately decide which contigs to combine and how to combine them via flexible mapping parameters and an intuitive web application. *Use this power wisely!*
 
 2. **Edit reporting is often absent or poor.** When reference-based assemblies are published, we rarely see a clear, step-by-step record of the scaffolder's choices such that a 3rd party can easily reproduce the result, even if the tool used produces such an output. We believe that this is because the reports, if they exist, are often difficult to parse and understand. YARBS automatically produces human-readable reports of all changes made that are easy to include directly in supplementary material. Additionally, to aid in reporting and scaffolding integrity, YARBS automatically adds NNNs between joined contigs.
+
+Inspiration -- this tool was inspired by [Dot](https://dot.sandbox.bio) as well as [RagTag](https://github.com/malonge/RagTag) and [pteranodon](https://github.com/w-korani/Pteranodon). These are awesome tools, and I highly recommend checking all of them out. 
 
 ## Table of Contents
 - [Prerequisites](#prerequisites)
