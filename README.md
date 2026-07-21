@@ -258,3 +258,9 @@ If you have tons of small contigs and want to speed up the initial alignment/pre
 ## Questions or Issues?
 
 If you encounter problems or have questions, please open an issue on the project repository: https://github.com/laramiemckenna/YARBS/issues
+
+--- 
+
+## Funding: 
+
+This work was funded by National Science Foundation IOS-PGRP CAREER #2239530 (Alex Harkess) and by National Science Foundation Graduate Research Fellowship Program (Laramie Akozbek).
